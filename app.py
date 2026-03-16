@@ -95,19 +95,37 @@ def analyze():
 
     try:
 
-        info = get_video_info(url)
+        ydl_opts = {
+            "quiet": True,
+            "skip_download": True,
+            "socket_timeout": 10,
+            "retries": 2,
+            "noplaylist": True,
+            "extract_flat": True,
+            "nocheckcertificate": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "tv"]
+                }
+            },
+            "http_headers": {
+                "User-Agent": "com.google.android.youtube/19.09.37"
+            }
+        }
 
-        formats = []
-
-        for f in info.get("formats", []):
-            if f.get("height"):
-                formats.append(f"{f['height']}p")
-
-        formats = sorted(list(set(formats)))
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
 
         return jsonify({
             "title": info.get("title"),
-            "resolutions": formats
+            "resolutions": [
+                "144p",
+                "240p",
+                "360p",
+                "480p",
+                "720p",
+                "1080p"
+            ]
         })
 
     except Exception as e:
