@@ -1,7 +1,9 @@
 import yt_dlp
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 YOUTUBE_CLIENTS = [
     "tv",
@@ -53,10 +55,11 @@ def extract_video_info(url):
     raise Exception(last_error)
 
 
-@app.route("/analyze")
+@app.route("/analyze", methods=["POST"])
 def analyze():
 
-    url = request.args.get("url")
+    data = request.json
+    url = data.get("url") if data else None
 
     if not url:
         return jsonify({"error": "missing url"}), 400
@@ -98,7 +101,7 @@ def analyze():
 @app.route("/")
 def health():
     return {"status": "running"}
-    
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
