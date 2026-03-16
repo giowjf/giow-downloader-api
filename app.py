@@ -1,167 +1,104 @@
-import os
 import yt_dlp
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
 
-DOWNLOAD_FOLDER = "downloads"
-os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+YOUTUBE_CLIENTS = [
+    "tv",
+    "android",
+    "ios",
+    "web_creator",
+    "web_embedded",
+    "web"
+]
 
 
-def get_video_info(url):
+def extract_video_info(url):
 
-    ydl_opts = {
-        "quiet": True,
-        "skip_download": True,
-        "socket_timeout": 15,
-        "retries": 3,
-        "noplaylist": True,
-        "nocheckcertificate": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "tv"]
+    last_error = None
+
+    for client in YOUTUBE_CLIENTS:
+
+        try:
+
+            ydl_opts = {
+                "quiet": True,
+                "nocheckcertificate": True,
+                "skip_download": True,
+                "retries": 2,
+
+                "http_headers": {
+                    "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 12)",
+                    "Accept-Language": "en-US,en;q=0.9"
+                },
+
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": [client],
+                        "player_skip": ["configs"]
+                    }
+                }
             }
-        },
-        "http_headers": {
-            "User-Agent": "com.google.android.youtube/19.09.37"
-        }
-    }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
 
-    return info
+            info["used_client"] = client
+            return info
 
+        except Exception as e:
+            last_error = str(e)
+            continue
 
-def download_video(url):
-
-    ydl_opts = {
-        "outtmpl": f"{DOWNLOAD_FOLDER}/%(id)s.%(ext)s",
-        "format": "bestvideo+bestaudio/best",
-        "socket_timeout": 15,
-        "retries": 3,
-        "noplaylist": True,
-        "nocheckcertificate": True,
-        "merge_output_format": "mp4",
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "tv"]
-            }
-        },
-        "http_headers": {
-            "User-Agent": "com.google.android.youtube/19.09.37"
-        }
-    }
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-
-    filename = ydl.prepare_filename(info)
-
-    return filename
+    raise Exception(last_error)
 
 
-@app.route("/")
-def home():
-    return {
-        "status": "Giow Downloader API",
-        "engine": "yt-dlp",
-        "version": "docker"
-    }
-
-
-@app.route("/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.route("/analyze", methods=["POST", "OPTIONS"])
+@app.route("/analyze")
 def analyze():
 
-    if request.method == "OPTIONS":
-        return {}, 200
-
-    data = request.get_json()
-
-    if not data:
-        return jsonify({"error": "Body vazio"}), 400
-
-    url = data.get("url")
+    url = request.args.get("url")
 
     if not url:
-        return jsonify({"error": "URL não enviada"}), 400
+        return jsonify({"error": "missing url"}), 400
 
     try:
 
-        ydl_opts = {
-            "quiet": True,
-            "skip_download": True,
-            "socket_timeout": 10,
-            "retries": 2,
-            "noplaylist": True,
-            "extract_flat": True,
-            "nocheckcertificate": True,
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android", "tv"]
-                }
-            },
-            "http_headers": {
-                "User-Agent": "com.google.android.youtube/19.09.37"
-            }
-        }
+        info = extract_video_info(url)
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        formats = []
+
+        for f in info.get("formats", []):
+
+            if f.get("vcodec") != "none":
+
+                formats.append({
+                    "format_id": f.get("format_id"),
+                    "ext": f.get("ext"),
+                    "resolution": f.get("resolution"),
+                    "filesize": f.get("filesize"),
+                    "url": f.get("url")
+                })
 
         return jsonify({
             "title": info.get("title"),
-            "resolutions": [
-                "144p",
-                "240p",
-                "360p",
-                "480p",
-                "720p",
-                "1080p"
-            ]
+            "duration": info.get("duration"),
+            "thumbnail": info.get("thumbnail"),
+            "formats": formats,
+            "client_used": info.get("used_client")
         })
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/download", methods=["POST", "OPTIONS"])
-def download():
-
-    if request.method == "OPTIONS":
-        return {}, 200
-
-    data = request.get_json()
-
-    if not data:
-        return jsonify({"error": "Body vazio"}), 400
-
-    url = data.get("url")
-
-    if not url:
-        return jsonify({"error": "URL não enviada"}), 400
-
-    try:
-
-        file_path = download_video(url)
 
         return jsonify({
-            "file": file_path
-        })
+            "error": "failed to extract video",
+            "details": str(e)
+        }), 500
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
+@app.route("/")
+def health():
+    return {"status": "running"}
+    
 
 if __name__ == "__main__":
-
-    port = int(os.environ.get("PORT", 10000))
-
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000)
