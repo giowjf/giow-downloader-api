@@ -16,6 +16,9 @@ def get_video_info(url):
     ydl_opts = {
         "quiet": True,
         "skip_download": True,
+        "socket_timeout": 15,
+        "retries": 3,
+        "noplaylist": True,
         "extractor_args": {
             "youtube": {
                 "player_client": ["android"]
@@ -37,6 +40,9 @@ def download_video(url):
     ydl_opts = {
         "outtmpl": f"{DOWNLOAD_FOLDER}/%(id)s.%(ext)s",
         "format": "bv*+ba/b",
+        "socket_timeout": 15,
+        "retries": 3,
+        "noplaylist": True,
         "extractor_args": {
             "youtube": {
                 "player_client": ["android"]
@@ -46,7 +52,6 @@ def download_video(url):
             "User-Agent": "com.google.android.youtube/19.09.37"
         },
         "merge_output_format": "mp4",
-        "noplaylist": True
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -62,8 +67,11 @@ def home():
     return {"status": "Giow Downloader API usando yt-dlp"}
 
 
-@app.route("/analyze", methods=["POST"])
+@app.route("/analyze", methods=["POST", "OPTIONS"])
 def analyze():
+
+    if request.method == "OPTIONS":
+        return {}, 200
 
     data = request.get_json()
 
@@ -96,8 +104,11 @@ def analyze():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/download", methods=["POST"])
+@app.route("/download", methods=["POST", "OPTIONS"])
 def download():
+
+    if request.method == "OPTIONS":
+        return {}, 200
 
     data = request.get_json()
 
