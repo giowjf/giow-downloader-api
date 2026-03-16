@@ -7,7 +7,6 @@ app = Flask(__name__)
 CORS(app)
 
 DOWNLOAD_FOLDER = "downloads"
-
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
 
@@ -19,9 +18,10 @@ def get_video_info(url):
         "socket_timeout": 15,
         "retries": 3,
         "noplaylist": True,
+        "nocheckcertificate": True,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android"]
+                "player_client": ["android", "tv"]
             }
         },
         "http_headers": {
@@ -39,19 +39,20 @@ def download_video(url):
 
     ydl_opts = {
         "outtmpl": f"{DOWNLOAD_FOLDER}/%(id)s.%(ext)s",
-        "format": "bv*+ba/b",
+        "format": "bestvideo+bestaudio/best",
         "socket_timeout": 15,
         "retries": 3,
         "noplaylist": True,
+        "nocheckcertificate": True,
+        "merge_output_format": "mp4",
         "extractor_args": {
             "youtube": {
-                "player_client": ["android"]
+                "player_client": ["android", "tv"]
             }
         },
         "http_headers": {
             "User-Agent": "com.google.android.youtube/19.09.37"
-        },
-        "merge_output_format": "mp4",
+        }
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -64,7 +65,16 @@ def download_video(url):
 
 @app.route("/")
 def home():
-    return {"status": "Giow Downloader API usando yt-dlp"}
+    return {
+        "status": "Giow Downloader API",
+        "engine": "yt-dlp",
+        "version": "docker"
+    }
+
+
+@app.route("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.route("/analyze", methods=["POST", "OPTIONS"])
@@ -134,6 +144,6 @@ def download():
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
 
     app.run(host="0.0.0.0", port=port)
