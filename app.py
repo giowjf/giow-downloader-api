@@ -1,119 +1,124 @@
 import os
-import requests
+import yt_dlp
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)
 
-COBALT_API = "https://api.cobalt.tools/api"
+DOWNLOAD_FOLDER = "downloads"
+
+os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
 
-def get_cobalt(url):
+def get_video_info(url):
 
-    r = requests.post(
-        COBALT_API,
-        json={
-            "url": url
+    ydl_opts = {
+        "quiet": True,
+        "skip_download": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android"]
+            }
         },
-        headers={
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        },
-        timeout=30
-    )
+        "http_headers": {
+            "User-Agent": "com.google.android.youtube/19.09.37"
+        }
+    }
 
-    return r.json()
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    return info
+
+
+def download_video(url):
+
+    ydl_opts = {
+        "outtmpl": f"{DOWNLOAD_FOLDER}/%(id)s.%(ext)s",
+        "format": "bv*+ba/b",
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android"]
+            }
+        },
+        "http_headers": {
+            "User-Agent": "com.google.android.youtube/19.09.37"
+        },
+        "merge_output_format": "mp4",
+        "noplaylist": True
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+
+    filename = ydl.prepare_filename(info)
+
+    return filename
 
 
 @app.route("/")
 def home():
-    return {"status": "Giow Downloader API usando Cobalt"}
+    return {"status": "Giow Downloader API usando yt-dlp"}
 
 
-@app.route("/analyze", methods=["POST", "OPTIONS"])
+@app.route("/analyze", methods=["POST"])
 def analyze():
 
-    if request.method == "OPTIONS":
-        return {}, 200
-
     data = request.get_json()
 
     if not data:
-        return jsonify({"error": "Body vazio"})
+        return jsonify({"error": "Body vazio"}), 400
 
     url = data.get("url")
 
     if not url:
-        return jsonify({"error": "URL não enviada"})
+        return jsonify({"error": "URL não enviada"}), 400
 
     try:
 
-        result = get_cobalt(url)
+        info = get_video_info(url)
 
-        if result.get("status") not in ["success", "stream"]:
-            return jsonify({
-                "error": result.get("text", "Não foi possível analisar o vídeo"),
-                "debug": result
-            })
+        formats = []
 
-        download_url = result.get("url")
+        for f in info.get("formats", []):
+            if f.get("height"):
+                formats.append(f"{f['height']}p")
 
-        if not download_url:
-            return jsonify({
-                "error": "API não retornou link",
-                "debug": result
-            })
+        formats = sorted(list(set(formats)))
 
         return jsonify({
-            "resolutions": ["Qualidade automática"],
-            "download": download_url
+            "title": info.get("title"),
+            "resolutions": formats
         })
 
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
-@app.route("/download", methods=["POST", "OPTIONS"])
+@app.route("/download", methods=["POST"])
 def download():
 
-    if request.method == "OPTIONS":
-        return {}, 200
-
     data = request.get_json()
 
     if not data:
-        return jsonify({"error": "Body vazio"})
+        return jsonify({"error": "Body vazio"}), 400
 
     url = data.get("url")
 
     if not url:
-        return jsonify({"error": "URL não enviada"})
+        return jsonify({"error": "URL não enviada"}), 400
 
     try:
 
-        result = get_cobalt(url)
-
-        if result.get("status") not in ["success", "stream"]:
-            return jsonify({
-                "error": result.get("text", "Falha ao gerar download"),
-                "debug": result
-            })
-
-        download_url = result.get("url")
-
-        if not download_url:
-            return jsonify({
-                "error": "API não retornou link",
-                "debug": result
-            })
+        file_path = download_video(url)
 
         return jsonify({
-            "download": download_url
+            "file": file_path
         })
 
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
