@@ -6,18 +6,19 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-COBALT_API = "https://co.wuk.sh/api/json"
+COBALT_API = "https://api.cobalt.tools/api"
 
 
 def get_cobalt(url):
+
     r = requests.post(
         COBALT_API,
         json={
             "url": url
         },
         headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json"
+            "Accept": "application/json",
+            "Content-Type": "application/json"
         },
         timeout=30
     )
@@ -37,6 +38,10 @@ def analyze():
         return {}, 200
 
     data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "Body vazio"})
+
     url = data.get("url")
 
     if not url:
@@ -56,7 +61,7 @@ def analyze():
 
         if not download_url:
             return jsonify({
-                "error": "API não retornou link de download",
+                "error": "API não retornou link",
                 "debug": result
             })
 
@@ -76,6 +81,10 @@ def download():
         return {}, 200
 
     data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "Body vazio"})
+
     url = data.get("url")
 
     if not url:
@@ -95,7 +104,7 @@ def download():
 
         if not download_url:
             return jsonify({
-                "error": "API não retornou link de download",
+                "error": "API não retornou link",
                 "debug": result
             })
 
@@ -108,5 +117,7 @@ def download():
 
 
 if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 5000))
+
     app.run(host="0.0.0.0", port=port)
