@@ -4,13 +4,12 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 COBALT_API = "https://api.cobalt.tools/api"
 
 
 def get_cobalt(url):
-
     r = requests.post(
         COBALT_API,
         json={
@@ -33,8 +32,11 @@ def home():
     return {"status": "Giow Downloader API usando Cobalt"}
 
 
-@app.route("/analyze", methods=["POST"])
+@app.route("/analyze", methods=["POST", "OPTIONS"])
 def analyze():
+
+    if request.method == "OPTIONS":
+        return {}, 200
 
     data = request.get_json()
     url = data.get("url")
@@ -66,12 +68,14 @@ def analyze():
         })
 
     except Exception as e:
-
         return jsonify({"error": str(e)})
 
 
-@app.route("/download", methods=["POST"])
+@app.route("/download", methods=["POST", "OPTIONS"])
 def download():
+
+    if request.method == "OPTIONS":
+        return {}, 200
 
     data = request.get_json()
     url = data.get("url")
@@ -102,12 +106,9 @@ def download():
         })
 
     except Exception as e:
-
         return jsonify({"error": str(e)})
 
 
 if __name__ == "__main__":
-
     port = int(os.environ.get("PORT", 5000))
-
     app.run(host="0.0.0.0", port=port)
