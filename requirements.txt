@@ -1,4 +1,4 @@
 flask
-yt-dlp>=2025.3.21
 gunicorn
 flask-cors
+requests
