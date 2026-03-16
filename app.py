@@ -10,19 +10,20 @@ COBALT_API = "https://api.cobalt.tools/api"
 
 
 def get_cobalt(url):
-r = requests.post(
-    COBALT_API,
-    json={
-        "url": url,
-        "vCodec": "h264",
-        "vQuality": "max"
-    },
-    headers={
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    },
-    timeout=30
-)
+
+    r = requests.post(
+        COBALT_API,
+        json={
+            "url": url,
+            "vCodec": "h264",
+            "vQuality": "max"
+        },
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
+        timeout=30
+    )
 
     return r.json()
 
