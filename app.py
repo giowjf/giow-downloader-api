@@ -9,6 +9,22 @@ CORS(app)
 COBALT_API = "https://api.cobalt.tools/api/json"
 
 
+def get_cobalt(url):
+    r = requests.post(
+        COBALT_API,
+        json={
+            "url": url
+        },
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
+        timeout=30
+    )
+
+    return r.json()
+
+
 @app.route("/")
 def home():
     return {"status": "Giow Downloader API usando Cobalt"}
@@ -20,24 +36,30 @@ def analyze():
     data = request.get_json()
     url = data.get("url")
 
+    if not url:
+        return jsonify({"error": "URL não enviada"})
+
     try:
 
-        r = requests.post(
-            COBALT_API,
-            json={
-                "url": url
-            },
-            timeout=30
-        )
+        result = get_cobalt(url)
 
-        result = r.json()
+        if result.get("status") not in ["success", "stream"]:
+            return jsonify({
+                "error": result.get("text", "Não foi possível analisar o vídeo"),
+                "debug": result
+            })
 
-        if "url" not in result:
-            return jsonify({"error": "Não foi possível analisar o vídeo"})
+        download_url = result.get("url")
+
+        if not download_url:
+            return jsonify({
+                "error": "API não retornou link de download",
+                "debug": result
+            })
 
         return jsonify({
             "resolutions": ["Qualidade automática"],
-            "download": result["url"]
+            "download": download_url
         })
 
     except Exception as e:
@@ -51,23 +73,29 @@ def download():
     data = request.get_json()
     url = data.get("url")
 
+    if not url:
+        return jsonify({"error": "URL não enviada"})
+
     try:
 
-        r = requests.post(
-            COBALT_API,
-            json={
-                "url": url
-            },
-            timeout=30
-        )
+        result = get_cobalt(url)
 
-        result = r.json()
+        if result.get("status") not in ["success", "stream"]:
+            return jsonify({
+                "error": result.get("text", "Falha ao gerar download"),
+                "debug": result
+            })
 
-        if "url" not in result:
-            return jsonify({"error": "Falha ao gerar download"})
+        download_url = result.get("url")
+
+        if not download_url:
+            return jsonify({
+                "error": "API não retornou link de download",
+                "debug": result
+            })
 
         return jsonify({
-            "download": result["url"]
+            "download": download_url
         })
 
     except Exception as e:
