@@ -2,9 +2,11 @@ import os
 import uuid
 import yt_dlp
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 
 # inicialização do Flask
 app = Flask(__name__)
+CORS(app)
 
 # pasta onde os downloads serão armazenados
 DOWNLOAD_DIR = "downloads"
