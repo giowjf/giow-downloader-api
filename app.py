@@ -6,16 +6,14 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-COBALT_API = "https://api.cobalt.tools/api"
+COBALT_API = "https://co.wuk.sh/api/json"
 
 
 def get_cobalt(url):
     r = requests.post(
         COBALT_API,
         json={
-            "url": url,
-            "vCodec": "h264",
-            "vQuality": "max"
+            "url": url
         },
         headers={
             "Content-Type": "application/json",
