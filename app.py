@@ -4,24 +4,20 @@ import yt_dlp
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 
-# inicialização do Flask
 app = Flask(__name__)
 CORS(app)
 
-# pasta onde os downloads serão armazenados
 DOWNLOAD_DIR = "downloads"
 
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
 
-# rota de teste
 @app.route("/")
 def home():
     return {"status": "Giow Downloader API rodando"}
 
 
-# analisar resoluções do vídeo
 @app.route("/analyze", methods=["POST"])
 def analyze():
 
@@ -32,7 +28,16 @@ def analyze():
 
         resolutions = set()
 
-        with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
+        ydl_opts = {
+            "quiet": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android"]
+                }
+            }
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
 
             info = ydl.extract_info(url, download=False)
 
@@ -63,7 +68,6 @@ def analyze():
         return jsonify({"error": str(e)})
 
 
-# download do arquivo
 @app.route("/download", methods=["POST"])
 def download():
 
@@ -77,19 +81,28 @@ def download():
 
     try:
 
+        ydl_opts_base = {
+            "quiet": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android"]
+                }
+            }
+        }
+
         if mode == "mp3":
 
             filename = f"{file_id}.mp3"
 
             ydl_opts = {
+                **ydl_opts_base,
                 "format": "bestaudio/best",
                 "outtmpl": os.path.join(DOWNLOAD_DIR, filename),
                 "postprocessors": [{
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
                     "preferredquality": "192"
-                }],
-                "quiet": True
+                }]
             }
 
         else:
@@ -103,10 +116,10 @@ def download():
                 fmt = f"bestvideo[height<={h}]+bestaudio/best"
 
             ydl_opts = {
+                **ydl_opts_base,
                 "format": fmt,
                 "merge_output_format": "mp4",
-                "outtmpl": os.path.join(DOWNLOAD_DIR, filename),
-                "quiet": True
+                "outtmpl": os.path.join(DOWNLOAD_DIR, filename)
             }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -122,7 +135,8 @@ def download():
         return jsonify({"error": str(e)})
 
 
-# execução local (Render usa gunicorn)
 if __name__ == "__main__":
+
     port = int(os.environ.get("PORT", 5000))
+
     app.run(host="0.0.0.0", port=port)
