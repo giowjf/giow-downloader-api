@@ -82,13 +82,20 @@ def download():
     try:
 
         ydl_opts_base = {
-            "quiet": True,
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android"]
-                }
-            }
+    "quiet": True,
+    "http_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"
+    },
+    "extractor_args": {
+        "youtube": {
+            "player_client": [
+                "android",
+                "ios",
+                "web"
+            ]
         }
+    }
+}
 
         if mode == "mp3":
 
