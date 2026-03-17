@@ -1,10 +1,11 @@
 import os
 import yt_dlp
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
 from downloader import download_video
 
 app = Flask(__name__)
+
 CORS(
     app,
     resources={r"/*": {"origins": "*"}},
@@ -12,7 +13,7 @@ CORS(
     methods=["GET", "POST", "OPTIONS"]
 )
 
-# diretório de downloads (melhor para containers como Render)
+# diretório temporário de downloads
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -24,6 +25,14 @@ YOUTUBE_CLIENTS = [
     "web_embedded",
     "web"
 ]
+
+
+def cors_preflight():
+    response = make_response()
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    return response
 
 
 def extract_video_info(url):
@@ -69,6 +78,9 @@ def extract_video_info(url):
 @app.route("/analyze", methods=["POST", "OPTIONS"])
 def analyze():
 
+    if request.method == "OPTIONS":
+        return cors_preflight()
+
     data = request.json
     url = data.get("url") if data else None
 
@@ -112,6 +124,9 @@ def analyze():
 @app.route("/download", methods=["POST", "OPTIONS"])
 def download():
 
+    if request.method == "OPTIONS":
+        return cors_preflight()
+
     data = request.json
     url = data.get("url")
     mode = data.get("mode", "mp4")
@@ -130,7 +145,7 @@ def download():
             as_attachment=True
         )
 
-        # apagar arquivo após envio
+        # apagar arquivo depois do envio
         try:
             os.remove(path)
         except:
