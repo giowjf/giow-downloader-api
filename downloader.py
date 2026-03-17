@@ -2,7 +2,7 @@ import yt_dlp
 import uuid
 import os
 
-DOWNLOAD_DIR = "downloads"
+DOWNLOAD_DIR = "/tmp/downloads"
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
