@@ -1,3 +1,4 @@
+import os
 import yt_dlp
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -5,6 +6,10 @@ from downloader import download_video
 
 app = Flask(__name__)
 CORS(app)
+
+# diretório de downloads (melhor para containers como Render)
+DOWNLOAD_DIR = "/tmp/downloads"
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 YOUTUBE_CLIENTS = [
     "tv",
@@ -112,10 +117,21 @@ def download():
     try:
 
         file = download_video(url, mode)
+        path = os.path.join(DOWNLOAD_DIR, file)
 
-        return jsonify({
-            "file": f"downloads/{file}"
-        })
+        response = send_from_directory(
+            DOWNLOAD_DIR,
+            file,
+            as_attachment=True
+        )
+
+        # apagar arquivo após envio
+        try:
+            os.remove(path)
+        except:
+            pass
+
+        return response
 
     except Exception as e:
 
@@ -123,11 +139,6 @@ def download():
             "error": "download failed",
             "details": str(e)
         }), 500
-
-
-@app.route("/downloads/<path:filename>")
-def serve_file(filename):
-    return send_from_directory("downloads", filename)
 
 
 @app.route("/")
