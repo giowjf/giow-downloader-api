@@ -5,7 +5,12 @@ from flask_cors import CORS
 from downloader import download_video
 
 app = Flask(__name__)
-CORS(app)
+CORS(
+    app,
+    resources={r"/*": {"origins": "*"}},
+    allow_headers=["Content-Type"],
+    methods=["GET", "POST", "OPTIONS"]
+)
 
 # diretório de downloads (melhor para containers como Render)
 DOWNLOAD_DIR = "/tmp/downloads"
@@ -61,7 +66,7 @@ def extract_video_info(url):
     raise Exception(last_error)
 
 
-@app.route("/analyze", methods=["POST"])
+@app.route("/analyze", methods=["POST", "OPTIONS"])
 def analyze():
 
     data = request.json
@@ -104,7 +109,7 @@ def analyze():
         }), 500
 
 
-@app.route("/download", methods=["POST"])
+@app.route("/download", methods=["POST", "OPTIONS"])
 def download():
 
     data = request.json
