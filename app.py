@@ -105,3 +105,37 @@ def health():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
+from downloader import download_video
+from flask import send_from_directory
+
+
+@app.route("/download", methods=["POST"])
+def download():
+
+    data = request.json
+    url = data.get("url")
+    mode = data.get("mode", "mp4")
+
+    if not url:
+        return jsonify({"error": "missing url"}), 400
+
+    try:
+
+        file = download_video(url, mode)
+
+        return jsonify({
+            "file": f"downloads/{file}"
+        })
+
+    except Exception as e:
+
+        return jsonify({
+            "error": "download failed",
+            "details": str(e)
+        }), 500
+
+
+@app.route("/downloads/<path:filename>")
+def serve_file(filename):
+    return send_from_directory("downloads", filename)
