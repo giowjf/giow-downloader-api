@@ -27,4 +27,4 @@ RUN mkdir -p downloads
 EXPOSE 5000
 
 # iniciar servidor
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app"]
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "--timeout", "120", "app:app"]
