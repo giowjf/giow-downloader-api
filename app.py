@@ -1,6 +1,8 @@
+```python
 import yt_dlp
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from downloader import download_video
 
 app = Flask(__name__)
 CORS(app)
@@ -98,18 +100,6 @@ def analyze():
         }), 500
 
 
-@app.route("/")
-def health():
-    return {"status": "running"}
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
-
-from downloader import download_video
-from flask import send_from_directory
-
-
 @app.route("/download", methods=["POST"])
 def download():
 
@@ -139,3 +129,13 @@ def download():
 @app.route("/downloads/<path:filename>")
 def serve_file(filename):
     return send_from_directory("downloads", filename)
+
+
+@app.route("/")
+def health():
+    return {"status": "running"}
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+```
