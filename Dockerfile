@@ -4,22 +4,22 @@ WORKDIR /app
 
 # instalar dependências do sistema
 
-RUN apt-get update && apt-get install -y 
-ffmpeg 
-curl 
-nodejs 
-npm 
-chromium 
-fonts-liberation 
-libgtk-3-0 
-libnss3 
-libx11-xcb1 
-libxcomposite1 
-libxdamage1 
-libxrandr2 
-libgbm1 
-xdg-utils 
-&& rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+  ffmpeg \
+  curl \
+  nodejs \
+  npm \
+  chromium \
+  fonts-liberation \
+  libgtk-3-0 \
+  libnss3 \
+  libx11-xcb1 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxrandr2 \
+  libgbm1 \
+  xdg-utils \
+  && rm -rf /var/lib/apt/lists/*
 
 # copiar requirements python
 
