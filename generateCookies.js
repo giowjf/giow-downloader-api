@@ -32,7 +32,7 @@ function convertToNetscape(cookies) {
   await new Promise(r => setTimeout(r, 120000));
 
   const cookies = await page.cookies();
-  fs.writeFileSync(COOKIE_PATH, convertToNetscape(cookies));
+  fs.writeFileSync("cookies.txt", convertToNetscape(cookies));
 
   console.log("✅ cookies.txt atualizado!");
 
