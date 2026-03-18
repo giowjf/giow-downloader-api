@@ -1,10 +1,4 @@
 import os
-
-cookie_path = "/app/cookies.txt"
-
-ydl_opts = {
-    "cookiefile": cookie_path if os.path.exists(cookie_path) else None,
-}
 import yt_dlp
 from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
@@ -45,6 +39,8 @@ def extract_video_info(url):
 
     last_error = None
 
+    cookie_path = "/app/cookies.txt"
+
     for client in YOUTUBE_CLIENTS:
 
         try:
@@ -55,21 +51,33 @@ def extract_video_info(url):
                 "skip_download": True,
                 "retries": 2,
 
-                "cookiefile": "/app/cookies.txt",  # 👈 ADICIONA AQUI
+                # usa cookie só se existir
+                "cookiefile": cookie_path if os.path.exists(cookie_path) else None,
 
                 "http_headers": {
                     "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 12)",
-                "Accept-Language": "en-US,en;q=0.9"
+                    "Accept-Language": "en-US,en;q=0.9"
                 },
-            
+
                 "extractor_args": {
-                "youtube": {
-                    "player_client": [client],
-                    "player_skip": ["configs"]
+                    "youtube": {
+                        "player_client": [client],
+                        "player_skip": ["configs"]
+                    }
                 }
             }
-        }
 
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+            info["used_client"] = client
+            return info
+
+        except Exception as e:
+            last_error = str(e)
+            continue
+
+    raise Exception(last_error)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
