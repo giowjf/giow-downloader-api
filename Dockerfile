@@ -2,33 +2,23 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# instalar dependências do sistema (ffmpeg + chromium + node)
+# instalar dependências do sistema
 
 RUN apt-get update && apt-get install -y 
 ffmpeg 
 curl 
 nodejs 
 npm 
-wget 
-gnupg 
-ca-certificates 
+chromium 
 fonts-liberation 
-libappindicator3-1 
-libasound2 
-libatk-bridge2.0-0 
-libatk1.0-0 
-libcups2 
-libdbus-1-3 
-libgbm1 
 libgtk-3-0 
-libnspr4 
 libnss3 
 libx11-xcb1 
 libxcomposite1 
 libxdamage1 
 libxrandr2 
+libgbm1 
 xdg-utils 
-chromium 
 && rm -rf /var/lib/apt/lists/*
 
 # copiar requirements python
@@ -43,7 +33,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN pip install -U yt-dlp
 
-# copiar package.json do puppeteer
+# copiar package.json
 
 COPY package.json .
 
@@ -55,11 +45,11 @@ RUN npm install
 
 COPY . .
 
-# criar pasta temporária
+# criar pasta downloads
 
 RUN mkdir -p /tmp/downloads
 
-# gerar cookies automaticamente ao iniciar container
+# gerar cookies
 
 RUN node generateCookies.js || true
 
@@ -67,6 +57,6 @@ RUN node generateCookies.js || true
 
 EXPOSE 5000
 
-# iniciar API
+# iniciar servidor
 
-CMD ["gunicorn", "-b", "0.0.0.0:5000", "--timeout", "120", "app:app"]
+CMD node generateCookies.js && gunicorn -b 0.0.0.0:5000 --timeout 120 app:app
