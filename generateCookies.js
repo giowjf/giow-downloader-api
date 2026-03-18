@@ -1,63 +1,81 @@
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const fs = require("fs");
+
+puppeteer.use(StealthPlugin());
 
 (async () => {
 
-const browser = await puppeteer.launch({
-  headless: true,
-  executablePath: "/usr/bin/chromium",
-  args: [
-    "--no-sandbox",
-    "--disable-setuid-sandbox"
-  ]
-});
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath: "/usr/bin/chromium",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-blink-features=AutomationControlled"
+    ]
+  });
 
-const page = await browser.newPage();
+  const page = await browser.newPage();
 
-console.log("Abrindo login Google...");
+  console.log("Abrindo login Google...");
 
-await page.goto("https://accounts.google.com/signin/v2/identifier", {
-  waitUntil: "networkidle2"
-});
+  await page.goto("https://accounts.google.com/signin/v2/identifier", {
+    waitUntil: "networkidle2"
+  });
 
-await page.type('input[type="email"]', process.env.YT_EMAIL);
+  // EMAIL
+  await page.waitForSelector('input[type="email"]', { timeout: 10000 });
+  await page.type('input[type="email"]', process.env.YT_EMAIL, { delay: 50 });
 
-await page.click("#identifierNext");
+  await page.waitForSelector('#identifierNext', { timeout: 10000 });
+  await page.click("#identifierNext");
 
-await new Promise(r => setTimeout(r, 3000));
+  // Espera o campo de senha aparecer
+  await page.waitForSelector('input[type="password"]', { timeout: 15000 });
 
-await page.type('input[type="password"]', process.env.YT_PASSWORD);
+  // SENHA
+  await page.type('input[type="password"]', process.env.YT_PASSWORD, { delay: 50 });
 
-await page.click("#passwordNext");
+  // BOTÃO NEXT (novo seletor mais confiável)
+  const nextButtonSelector = 'button[jsname="LgbsSe"]';
 
-await page.waitForTimeout(8000);
+  await page.waitForSelector(nextButtonSelector, { timeout: 10000 });
+  await page.click(nextButtonSelector);
 
-console.log("Entrando no YouTube...");
+  // Aguarda login estabilizar
+  await new Promise(r => setTimeout(r, 8000));
 
-await page.goto("https://www.youtube.com", {
-  waitUntil: "networkidle2"
-});
+  console.log("Entrando no YouTube...");
 
-const cookies = await page.cookies();
+  await page.goto("https://www.youtube.com", {
+    waitUntil: "networkidle2"
+  });
 
-let cookieTxt = "";
+  // Aguarda garantir cookies carregados
+  await new Promise(r => setTimeout(r, 5000));
 
-cookies.forEach(c => {
-  cookieTxt += [
-    ".youtube.com",
-    "TRUE",
-    c.path,
-    c.secure ? "TRUE" : "FALSE",
-    c.expires || "0",
-    c.name,
-    c.value
-  ].join("\t") + "\n";
-});
+  const cookies = await page.cookies();
 
-fs.writeFileSync("cookies.txt", cookieTxt);
+  let cookieTxt = "";
 
-console.log("cookies.txt gerado com conta logada");
+  cookies.forEach(c => {
+    cookieTxt += [
+      ".youtube.com",
+      "TRUE",
+      c.path,
+      c.secure ? "TRUE" : "FALSE",
+      c.expires || "0",
+      c.name,
+      c.value
+    ].join("\t") + "\n";
+  });
 
-await browser.close();
+  fs.writeFileSync("cookies.txt", cookieTxt);
+
+  console.log("cookies.txt gerado com conta logada");
+
+  await browser.close();
 
 })();
