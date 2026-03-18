@@ -25,9 +25,10 @@ def download_video(url, mode="mp4"):
         ext = "mp3"
 
     else:
-
+        }
         ydl_opts = {
             "format": "bestvideo+bestaudio/best",
+            "cookiefile": "cookies.txt",
             "outtmpl": f"{DOWNLOAD_DIR}/{filename}.%(ext)s",
             "merge_output_format": "mp4"
         }
