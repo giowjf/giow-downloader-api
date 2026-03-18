@@ -49,18 +49,20 @@ def extract_video_info(url):
                 "skip_download": True,
                 "retries": 2,
 
+                "cookiefile": "/app/cookies.txt",  # 👈 ADICIONA AQUI
+
                 "http_headers": {
                     "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 12)",
-                    "Accept-Language": "en-US,en;q=0.9"
+                "Accept-Language": "en-US,en;q=0.9"
                 },
-
+            
                 "extractor_args": {
-                    "youtube": {
-                        "player_client": [client],
-                        "player_skip": ["configs"]
-                    }
+                "youtube": {
+                    "player_client": [client],
+                    "player_skip": ["configs"]
                 }
             }
+        }
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
