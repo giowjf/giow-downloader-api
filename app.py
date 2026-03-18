@@ -36,7 +36,7 @@ def cors_preflight():
 
 
 def extract_video_info(url):
-
+    print("COOKIE EXISTS:", os.path.exists("/app/cookies.txt"))
     last_error = None
     cookie_path = "/app/cookies.txt"
 
@@ -52,7 +52,8 @@ def extract_video_info(url):
 
                 # usa cookie só se existir
                 "cookiefile": cookie_path if os.path.exists(cookie_path) else None,
-
+                "verbose": True,
+                
                 "http_headers": {
                     "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 12)",
                     "Accept-Language": "en-US,en;q=0.9"
