@@ -1,4 +1,11 @@
 import os
+
+cookie_path = "/app/cookies.txt"
+
+ydl_opts = {
+    ...
+    "cookiefile": cookie_path if os.path.exists(cookie_path) else None,
+}
 import yt_dlp
 from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
