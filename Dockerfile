@@ -2,6 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
 # instalar dependências do sistema
 
 RUN apt-get update && apt-get install -y \
