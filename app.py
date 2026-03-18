@@ -35,7 +35,8 @@ def get_cookie_file():
     Retorna path de arquivo de cookies temporário.
     Prioridade:
       1. Env var YOUTUBE_COOKIES_B64 (conteúdo do cookies.txt em base64)
-      2. Arquivo fisico /app/cookies.txt
+      2. Secret File do Render em /etc/secrets/cookies.txt
+      3. Arquivo fisico /app/cookies.txt (fallback legado)
     """
     cookies_b64 = os.environ.get("YOUTUBE_COOKIES_B64")
     if cookies_b64:
@@ -52,6 +53,12 @@ def get_cookie_file():
         except Exception as e:
             print(f"Erro ao decodificar YOUTUBE_COOKIES_B64: {e}")
 
+    # Secret File do Render (caminho correto)
+    if os.path.exists("/etc/secrets/cookies.txt"):
+        print("Cookies carregados via /etc/secrets/cookies.txt")
+        return "/etc/secrets/cookies.txt"
+
+    # Fallback legado
     if os.path.exists("/app/cookies.txt"):
         print("Cookies carregados via /app/cookies.txt")
         return "/app/cookies.txt"

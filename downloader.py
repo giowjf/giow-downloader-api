@@ -1,6 +1,8 @@
 import yt_dlp
 import os
 import uuid
+import base64
+import tempfile
 
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
@@ -9,7 +11,13 @@ YOUTUBE_CLIENTS = ["tv", "web_embedded", "android", "ios", "web"]
 
 
 def get_cookie_file():
-    import base64, tempfile
+    """
+    Retorna path de arquivo de cookies temporário.
+    Prioridade:
+      1. Env var YOUTUBE_COOKIES_B64 (conteúdo do cookies.txt em base64)
+      2. Secret File do Render em /etc/secrets/cookies.txt
+      3. Arquivo fisico /app/cookies.txt (fallback legado)
+    """
     cookies_b64 = os.environ.get("YOUTUBE_COOKIES_B64")
     if cookies_b64:
         try:
@@ -21,8 +29,15 @@ def get_cookie_file():
             return tmp.name
         except Exception:
             pass
+
+    # Secret File do Render (caminho correto)
+    if os.path.exists("/etc/secrets/cookies.txt"):
+        return "/etc/secrets/cookies.txt"
+
+    # Fallback legado
     if os.path.exists("/app/cookies.txt"):
         return "/app/cookies.txt"
+
     return None
 
 
@@ -58,7 +73,6 @@ def download_video(url, mode="mp4", format_id=None):
             }]
         })
     elif format_id and format_id != "mp3":
-        # formato especifico selecionado
         base_opts["format"] = f"{format_id}+bestaudio/best[height<=1080]/best"
     else:
         base_opts["format"] = "bestvideo[height<=1080]+bestaudio/best"
@@ -67,13 +81,22 @@ def download_video(url, mode="mp4", format_id=None):
     for client in YOUTUBE_CLIENTS:
         try:
             opts = dict(base_opts)
-            opts["extractor_args"] = {"youtube": {"player_client": [client]}}
+
+            # Mescla corretamente sem sobrescrever outras extractor_args
+            opts.setdefault("extractor_args", {})
+            opts["extractor_args"]["youtube"] = {"player_client": [client]}
+
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
+
+                # Correção segura para MP3 com títulos especiais
                 if mode == "mp3":
-                    filename = filename.rsplit(".", 1)[0] + ".mp3"
+                    base = os.path.splitext(os.path.basename(filename))[0]
+                    filename = os.path.join(DOWNLOAD_DIR, base + ".mp3")
+
                 return os.path.basename(filename)
+
         except Exception as e:
             last_error = str(e)
             continue
