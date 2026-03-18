@@ -1,70 +1,40 @@
-const puppeteer = require("puppeteer-extra");
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const fs = require("fs");
+import fs from "fs";
+import puppeteer from "puppeteer";
 
-puppeteer.use(StealthPlugin());
+const COOKIE_PATH = "./cookies.txt";
+
+function convertToNetscape(cookies) {
+  return cookies.map(c => {
+    return [
+      c.domain,
+      "TRUE",
+      c.path,
+      c.secure ? "TRUE" : "FALSE",
+      Math.floor(Date.now() / 1000) + 3600 * 24 * 7,
+      c.name,
+      c.value
+    ].join("\t");
+  }).join("\n");
+}
 
 (async () => {
   const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: "/usr/bin/chromium",
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-blink-features=AutomationControlled"
-    ]
+    headless: false,
+    userDataDir: "/app/chrome-data",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
   const page = await browser.newPage();
 
-  console.log("Abrindo login Google...");
+  console.log("👉 Abra o YouTube e faça login manualmente...");
+  await page.goto("https://youtube.com", { waitUntil: "networkidle2" });
 
-  await page.goto("https://accounts.google.com/signin/v2/identifier", {
-    waitUntil: "networkidle2"
-  });
-
-  await page.waitForSelector('input[type="email"]', { timeout: 10000 });
-  await page.type('input[type="email"]', process.env.YT_EMAIL, { delay: 50 });
-
-  await page.click("#identifierNext");
-
-  await page.waitForSelector('input[type="password"]', { timeout: 15000 });
-  await page.type('input[type="password"]', process.env.YT_PASSWORD, { delay: 50 });
-
-  const nextButtonSelector = 'button[jsname="LgbsSe"]';
-  await page.waitForSelector(nextButtonSelector, { timeout: 10000 });
-  await page.click(nextButtonSelector);
-
-  await new Promise(r => setTimeout(r, 8000));
-
-  console.log("Entrando no YouTube...");
-
-  await page.goto("https://www.youtube.com", {
-    waitUntil: "networkidle2"
-  });
-
-  await new Promise(r => setTimeout(r, 5000));
+  await new Promise(r => setTimeout(r, 120000));
 
   const cookies = await page.cookies();
+  fs.writeFileSync(COOKIE_PATH, convertToNetscape(cookies));
 
-  let cookieTxt = "";
-
-  cookies.forEach(c => {
-    cookieTxt += [
-      ".youtube.com",
-      "TRUE",
-      c.path,
-      c.secure ? "TRUE" : "FALSE",
-      c.expires || "0",
-      c.name,
-      c.value
-    ].join("\t") + "\n";
-  });
-
-  fs.writeFileSync("/app/cookies.txt", cookieTxt);
-
-  console.log("cookies.txt gerado com conta logada");
+  console.log("✅ cookies.txt atualizado!");
 
   await browser.close();
 })();
