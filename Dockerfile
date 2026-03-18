@@ -57,4 +57,4 @@ EXPOSE 5000
 
 # iniciar servidor
 
-CMD node generateCookies.js && gunicorn -b 0.0.0.0:5000 --timeout 120 app:app
+CMD gunicorn -b 0.0.0.0:5000 --timeout 120 app:app
