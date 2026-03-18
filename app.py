@@ -3,7 +3,6 @@ import os
 cookie_path = "/app/cookies.txt"
 
 ydl_opts = {
-    ...
     "cookiefile": cookie_path if os.path.exists(cookie_path) else None,
 }
 import yt_dlp
