@@ -5,7 +5,6 @@ const fs = require("fs");
 puppeteer.use(StealthPlugin());
 
 (async () => {
-
   const browser = await puppeteer.launch({
     headless: true,
     executablePath: "/usr/bin/chromium",
@@ -25,26 +24,18 @@ puppeteer.use(StealthPlugin());
     waitUntil: "networkidle2"
   });
 
-  // EMAIL
   await page.waitForSelector('input[type="email"]', { timeout: 10000 });
   await page.type('input[type="email"]', process.env.YT_EMAIL, { delay: 50 });
 
-  await page.waitForSelector('#identifierNext', { timeout: 10000 });
   await page.click("#identifierNext");
 
-  // Espera o campo de senha aparecer
   await page.waitForSelector('input[type="password"]', { timeout: 15000 });
-
-  // SENHA
   await page.type('input[type="password"]', process.env.YT_PASSWORD, { delay: 50 });
 
-  // BOTÃO NEXT (novo seletor mais confiável)
   const nextButtonSelector = 'button[jsname="LgbsSe"]';
-
   await page.waitForSelector(nextButtonSelector, { timeout: 10000 });
   await page.click(nextButtonSelector);
 
-  // Aguarda login estabilizar
   await new Promise(r => setTimeout(r, 8000));
 
   console.log("Entrando no YouTube...");
@@ -53,7 +44,6 @@ puppeteer.use(StealthPlugin());
     waitUntil: "networkidle2"
   });
 
-  // Aguarda garantir cookies carregados
   await new Promise(r => setTimeout(r, 5000));
 
   const cookies = await page.cookies();
@@ -72,10 +62,9 @@ puppeteer.use(StealthPlugin());
     ].join("\t") + "\n";
   });
 
-  fs.writeFileSync("cookies.txt", cookieTxt);
+  fs.writeFileSync("/app/cookies.txt", cookieTxt);
 
   console.log("cookies.txt gerado com conta logada");
 
   await browser.close();
-
 })();
