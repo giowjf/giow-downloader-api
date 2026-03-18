@@ -49,10 +49,6 @@ COPY . .
 
 RUN mkdir -p /tmp/downloads
 
-# gerar cookies
-
-RUN node generateCookies.js || true
-
 # expor porta
 
 EXPOSE 5000
