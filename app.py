@@ -38,7 +38,6 @@ def cors_preflight():
 def extract_video_info(url):
 
     last_error = None
-
     cookie_path = "/app/cookies.txt"
 
     for client in YOUTUBE_CLIENTS:
@@ -67,17 +66,6 @@ def extract_video_info(url):
                 }
             }
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-
-            info["used_client"] = client
-            return info
-
-        except Exception as e:
-            last_error = str(e)
-            continue
-
-    raise Exception(last_error)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
