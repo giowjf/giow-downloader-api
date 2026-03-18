@@ -1,0 +1,7 @@
+{
+"name": "yt-cookie-generator",
+"version": "1.0.0",
+"dependencies": {
+"puppeteer": "^22.0.0"
+}
+}
