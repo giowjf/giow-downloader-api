@@ -53,15 +53,37 @@ def get_cookie_file():
         except Exception as e:
             print(f"Erro ao decodificar YOUTUBE_COOKIES_B64: {e}")
 
-    # Secret File do Render (caminho correto)
+    # Secret File do Render — copia para /tmp pois /etc/secrets é read-only
     if os.path.exists("/etc/secrets/cookies.txt"):
-        print("Cookies carregados via /etc/secrets/cookies.txt")
-        return "/etc/secrets/cookies.txt"
+        try:
+            with open("/etc/secrets/cookies.txt", "r") as f:
+                data = f.read()
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, dir="/tmp"
+            )
+            tmp.write(data)
+            tmp.flush()
+            tmp.close()
+            print("Cookies copiados de /etc/secrets/cookies.txt para /tmp")
+            return tmp.name
+        except Exception as e:
+            print(f"Erro ao copiar cookies do Secret File: {e}")
 
-    # Fallback legado
+    # Fallback legado — também copia para /tmp por segurança
     if os.path.exists("/app/cookies.txt"):
-        print("Cookies carregados via /app/cookies.txt")
-        return "/app/cookies.txt"
+        try:
+            with open("/app/cookies.txt", "r") as f:
+                data = f.read()
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, dir="/tmp"
+            )
+            tmp.write(data)
+            tmp.flush()
+            tmp.close()
+            print("Cookies copiados de /app/cookies.txt para /tmp")
+            return tmp.name
+        except Exception as e:
+            print(f"Erro ao copiar cookies legados: {e}")
 
     print("Nenhum cookie encontrado — tentando sem autenticacao")
     return None

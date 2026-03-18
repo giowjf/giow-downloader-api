@@ -30,13 +30,31 @@ def get_cookie_file():
         except Exception:
             pass
 
-    # Secret File do Render (caminho correto)
+    # Secret File do Render — copia para /tmp pois /etc/secrets é read-only
     if os.path.exists("/etc/secrets/cookies.txt"):
-        return "/etc/secrets/cookies.txt"
+        try:
+            with open("/etc/secrets/cookies.txt", "r") as f:
+                data = f.read()
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
+            tmp.write(data)
+            tmp.flush()
+            tmp.close()
+            return tmp.name
+        except Exception:
+            pass
 
-    # Fallback legado
+    # Fallback legado — também copia para /tmp por segurança
     if os.path.exists("/app/cookies.txt"):
-        return "/app/cookies.txt"
+        try:
+            with open("/app/cookies.txt", "r") as f:
+                data = f.read()
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
+            tmp.write(data)
+            tmp.flush()
+            tmp.close()
+            return tmp.name
+        except Exception:
+            pass
 
     return None
 
