@@ -24,7 +24,7 @@ await page.type('input[type="email"]', process.env.YT_EMAIL);
 
 await page.click("#identifierNext");
 
-await page.waitForTimeout(3000);
+await new Promise(r => setTimeout(r, 3000));
 
 await page.type('input[type="password"]', process.env.YT_PASSWORD);
 
