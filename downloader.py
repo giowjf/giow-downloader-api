@@ -7,57 +7,50 @@ import tempfile
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-YOUTUBE_CLIENTS = ["mweb", "android", "ios", "tv", "web_embedded", "web"]
+# Combinações de clientes para download — mesma lógica do app.py
+DOWNLOAD_CLIENTS = [
+    ["default", "android"],
+    ["mweb"],
+    ["ios"],
+    ["web"],
+]
 
 
 def get_cookie_file():
-    """
-    Retorna path de arquivo de cookies temporário.
-    Prioridade:
-      1. Env var YOUTUBE_COOKIES_B64
-      2. Secret File do Render em /etc/secrets/cookies.txt
-      3. Arquivo fisico /app/cookies.txt
-    """
     cookies_b64 = os.environ.get("YOUTUBE_COOKIES_B64")
     if cookies_b64:
         try:
             data = base64.b64decode(cookies_b64).decode("utf-8")
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
-            tmp.write(data)
-            tmp.flush()
-            tmp.close()
-            print(f"[cookies] Carregados via YOUTUBE_COOKIES_B64 ({len(data)} bytes)")
+            tmp.write(data); tmp.flush(); tmp.close()
+            print(f"[cookies] Via B64 ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
-            print(f"[cookies] Erro YOUTUBE_COOKIES_B64: {e}")
+            print(f"[cookies] Erro B64: {e}")
 
     if os.path.exists("/etc/secrets/cookies.txt"):
         try:
             with open("/etc/secrets/cookies.txt", "r") as f:
                 data = f.read()
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
-            tmp.write(data)
-            tmp.flush()
-            tmp.close()
-            print(f"[cookies] Carregados de /etc/secrets/cookies.txt ({len(data)} bytes)")
+            tmp.write(data); tmp.flush(); tmp.close()
+            print(f"[cookies] Via secret ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
-            print(f"[cookies] Erro /etc/secrets/cookies.txt: {e}")
+            print(f"[cookies] Erro secret: {e}")
 
     if os.path.exists("/app/cookies.txt"):
         try:
             with open("/app/cookies.txt", "r") as f:
                 data = f.read()
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
-            tmp.write(data)
-            tmp.flush()
-            tmp.close()
-            print(f"[cookies] Carregados de /app/cookies.txt ({len(data)} bytes)")
+            tmp.write(data); tmp.flush(); tmp.close()
+            print(f"[cookies] Via /app ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
-            print(f"[cookies] Erro /app/cookies.txt: {e}")
+            print(f"[cookies] Erro /app: {e}")
 
-    print("[cookies] NENHUM cookie encontrado!")
+    print("[cookies] Nenhum cookie!")
     return None
 
 
@@ -67,16 +60,16 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
     cookie_path = get_cookie_file()
 
     # Prioriza o cliente que funcionou no /analyze
-    clients_to_try = list(YOUTUBE_CLIENTS)
-    if preferred_client and preferred_client in clients_to_try:
-        clients_to_try.remove(preferred_client)
-        clients_to_try.insert(0, preferred_client)
+    clients_to_try = list(DOWNLOAD_CLIENTS)
+    if preferred_client:
+        preferred = [c for c in preferred_client.split("+") if c]
+        if preferred and preferred not in clients_to_try:
+            clients_to_try.insert(0, preferred)
 
-    # Monta seletor de formato
+    # Seletor de formato
     if mode == "mp3":
         fmt = "bestaudio/best"
     elif format_id and format_id != "mp3":
-        # Tenta o format_id específico com mux de áudio, depois fallbacks genéricos
         fmt = (
             f"{format_id}+bestaudio[ext=m4a]/"
             f"{format_id}+bestaudio/"
@@ -94,12 +87,11 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
 
     base_opts = {
         "outtmpl": output_path,
-        "quiet": False,  # log visível para debug
+        "quiet": False,
         "nocheckcertificate": True,
         "retries": 3,
         "fragment_retries": 3,
         "format": fmt,
-        # Não validar disponibilidade do formato antes de baixar
         "check_formats": False,
         "http_headers": {
             "User-Agent": (
@@ -121,23 +113,27 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
     if cookie_path:
         base_opts["cookiefile"] = cookie_path
 
-    # po_token opcional
     po_token = os.environ.get("YOUTUBE_PO_TOKEN")
     visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA")
 
     last_error = None
-    for client in clients_to_try:
+    for clients in clients_to_try:
+        label = "+".join(clients)
         try:
             opts = dict(base_opts)
             opts["extractor_args"] = {
-                "youtube": {"player_client": [client]}
+                "youtube": {
+                    "player_client": clients,
+                    # missing_pot: incluir formatos mesmo sem PO Token
+                    "formats": ["missing_pot"],
+                }
             }
 
             if po_token and visitor_data:
                 opts["extractor_args"]["youtube"]["po_token"] = [f"web+{po_token}"]
                 opts["extractor_args"]["youtube"]["visitor_data"] = [visitor_data]
 
-            print(f"[download] Tentando client={client} format={fmt[:60]}")
+            print(f"[download] Tentando clients={label} fmt={fmt[:80]}")
 
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -152,7 +148,7 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
 
         except Exception as e:
             last_error = str(e)
-            print(f"[download] Client {client} falhou: {last_error[:150]}")
+            print(f"[download] {label} falhou: {last_error[:200]}")
             continue
 
     raise Exception(f"Download falhou em todos os clientes. Ultimo erro: {last_error}")
