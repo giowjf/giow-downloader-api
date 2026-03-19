@@ -7,34 +7,19 @@ from flask_cors import CORS
 from downloader import download_video
 
 app = Flask(__name__)
-
-CORS(
-    app,
-    resources={r"/*": {"origins": "*"}},
-    allow_headers=["Content-Type"],
-    methods=["GET", "POST", "OPTIONS"]
-)
+CORS(app, resources={r"/*": {"origins": "*"}},
+     allow_headers=["Content-Type"], methods=["GET", "POST", "OPTIONS"])
 
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Combinações de clientes a tentar em ordem.
-# tv_embedded e ios_downgraded foram REMOVIDOS no yt-dlp 2026.01.31.
-# "default,android" é a combinação mais estável para datacenter com cookies.
-ANALYZE_CLIENTS = [
-    ["default", "android"],
-    ["mweb"],
-    ["ios"],
-    ["web"],
-]
-
 
 def cors_preflight():
-    response = make_response()
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-    return response
+    r = make_response()
+    r.headers["Access-Control-Allow-Origin"] = "*"
+    r.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    r.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    return r
 
 
 def get_cookie_file():
@@ -44,7 +29,7 @@ def get_cookie_file():
             data = base64.b64decode(cookies_b64).decode("utf-8")
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
             tmp.write(data); tmp.flush(); tmp.close()
-            print(f"[cookies] Via YOUTUBE_COOKIES_B64 ({len(data)} bytes)")
+            print(f"[cookies] B64 ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
             print(f"[cookies] Erro B64: {e}")
@@ -55,7 +40,7 @@ def get_cookie_file():
                 data = f.read()
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
             tmp.write(data); tmp.flush(); tmp.close()
-            print(f"[cookies] Via /etc/secrets/cookies.txt ({len(data)} bytes)")
+            print(f"[cookies] /etc/secrets/cookies.txt ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
             print(f"[cookies] Erro secret: {e}")
@@ -66,7 +51,7 @@ def get_cookie_file():
                 data = f.read()
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
             tmp.write(data); tmp.flush(); tmp.close()
-            print(f"[cookies] Via /app/cookies.txt ({len(data)} bytes)")
+            print(f"[cookies] /app/cookies.txt ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
             print(f"[cookies] Erro /app: {e}")
@@ -75,77 +60,100 @@ def get_cookie_file():
     return None
 
 
-def make_base_opts(cookie_path, clients, extra=None):
-    """
-    `formats=missing_pot` é ESSENCIAL para IPs de datacenter:
-    instrui o yt-dlp a incluir formatos mesmo sem Proof-of-Origin Token,
-    caso contrário a lista de formatos fica vazia ou o download falha.
-    Ref: github.com/yt-dlp/yt-dlp/issues/16155
-    """
-    opts = {
-        "quiet": True,
-        "nocheckcertificate": True,
-        "retries": 3,
-        "fragment_retries": 3,
-        "check_formats": False,
-        "ignore_no_formats_error": True,
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-        "extractor_args": {
-            "youtube": {
-                "player_client": clients,
-                "formats": ["missing_pot"],
-            }
-        },
-    }
-
-    if cookie_path:
-        opts["cookiefile"] = cookie_path
-
-    po_token = os.environ.get("YOUTUBE_PO_TOKEN")
-    visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA")
-    if po_token and visitor_data:
-        opts["extractor_args"]["youtube"]["po_token"] = [f"web+{po_token}"]
-        opts["extractor_args"]["youtube"]["visitor_data"] = [visitor_data]
-
-    if extra:
-        opts.update(extra)
-
-    return opts
-
-
 def extract_video_info(url):
+    """
+    Estratégia baseada nos issues #12482 e #16155 do yt-dlp (2025/2026):
+    - O cliente 'web' agora usa SABR (sem links diretos de download)
+    - O cliente 'android' ainda retorna formatos DASH baixáveis
+    - 'tv' retorna HLS muxado (qualidade limitada mas funciona)
+    - Combinação 'android,tv' cobre DASH + HLS como fallback
+    """
     cookie_path = get_cookie_file()
     last_error = None
 
-    for clients in ANALYZE_CLIENTS:
-        label = "+".join(clients)
+    # Cada tentativa é uma combinação diferente de clientes + opções
+    attempts = [
+        # 1. Android: único cliente que retorna DASH sem SABR em 2026
+        {
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android"],
+                    "formats": ["missing_pot"],
+                }
+            }
+        },
+        # 2. Android + TV juntos (mais formatos)
+        {
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "tv"],
+                    "formats": ["missing_pot"],
+                }
+            }
+        },
+        # 3. iOS: outro cliente com DASH direto
+        {
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["ios"],
+                    "formats": ["missing_pot"],
+                }
+            }
+        },
+        # 4. mweb: HLS mas com cookies pode ter formatos extras
+        {
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["mweb"],
+                    "formats": ["missing_pot"],
+                }
+            }
+        },
+    ]
+
+    for i, extra_args in enumerate(attempts):
+        client_label = extra_args["extractor_args"]["youtube"]["player_client"]
         try:
-            print(f"[analyze] Tentando clients={label}")
-            opts = make_base_opts(cookie_path, clients, extra={"skip_download": True})
+            print(f"[analyze] Tentativa {i+1}: client={client_label}")
+
+            opts = {
+                "quiet": True,
+                "skip_download": True,
+                "nocheckcertificate": True,
+                "check_formats": False,
+                "ignore_no_formats_error": True,
+                "http_headers": {
+                    "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+            }
+            opts.update(extra_args)
+
+            if cookie_path:
+                opts["cookiefile"] = cookie_path
 
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
             if not info:
-                last_error = f"clients={label} retornou vazio"
-                print(f"[analyze] {last_error}")
+                last_error = f"retornou vazio"
                 continue
 
-            n = len(info.get("formats") or [])
-            print(f"[analyze] OK clients={label}: {n} formatos")
-            info["used_clients"] = clients
+            all_fmts = info.get("formats") or []
+            # Conta formatos de vídeo reais (não storyboards, não só-áudio)
+            video_fmts = [
+                f for f in all_fmts
+                if (f.get("vcodec") or "") not in ("none", "")
+                and (f.get("height") or 0) > 0
+            ]
+            print(f"[analyze] OK client={client_label}: {len(all_fmts)} total, {len(video_fmts)} vídeo")
+
+            info["used_clients"] = client_label
             return info
 
         except Exception as e:
             last_error = str(e)
-            print(f"[analyze] {label} falhou: {last_error[:200]}")
+            print(f"[analyze] client={client_label} falhou: {last_error[:200]}")
             continue
 
     raise Exception(f"Todos os clientes falharam. Ultimo erro: {last_error}")
@@ -170,9 +178,11 @@ def analyze():
             vcodec = f.get("vcodec") or ""
             acodec = f.get("acodec") or ""
 
+            # Pular áudio puro
             if vcodec == "none":
                 continue
 
+            # Pular storyboards e formatos sem resolução
             height = f.get("height") or 0
             resolution = f.get("resolution") or (f"{height}p" if height else None)
             if not resolution or resolution in ("none", "0", "0p"):
@@ -202,7 +212,6 @@ def analyze():
         })
 
         print(f"[analyze] Retornando {len(formats)} formatos")
-
         return jsonify({
             "title": info.get("title"),
             "duration": info.get("duration"),
@@ -243,7 +252,6 @@ def download():
                 pass
 
         return response
-
     except Exception as e:
         return jsonify({"error": "Falha no download", "details": str(e)}), 500
 
