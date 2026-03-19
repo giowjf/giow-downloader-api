@@ -119,6 +119,7 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
         "format": fmt,
         "check_formats": False,
         "http_headers": {"Accept-Language": "en-US,en;q=0.9"},
+        "js_runtimes": ["node"],
     }
 
     if mode == "mp3":
