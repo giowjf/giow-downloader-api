@@ -7,7 +7,7 @@ import tempfile
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-YOUTUBE_CLIENTS = ["tv", "web_embedded", "android", "ios", "web"]
+YOUTUBE_CLIENTS = ["mweb", "android", "ios", "tv", "web_embedded", "web"]
 
 
 def get_cookie_file():

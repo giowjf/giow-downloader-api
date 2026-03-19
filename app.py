@@ -18,8 +18,8 @@ CORS(
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Clientes em ordem de confiabilidade
-YOUTUBE_CLIENTS = ["tv", "web_embedded", "android", "ios", "web_creator", "web"]
+# Clientes em ordem de confiabilidade para extração de metadados
+YOUTUBE_CLIENTS = ["mweb", "android", "ios", "tv", "web_embedded", "web_creator", "web"]
 
 
 def cors_preflight():
@@ -96,6 +96,11 @@ def build_ydl_opts(cookie_path, client, skip_download=True, output_path=None):
         "skip_download": skip_download,
         "retries": 3,
         "fragment_retries": 3,
+        # Ao analisar, não forçar validação de formato específico.
+        # "bestvideo/best" aceita qualquer formato disponível pelo cliente.
+        "format": "bestvideo/best",
+        # Não abortar se algum formato não estiver disponível neste cliente
+        "ignore_no_formats_error": True,
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -127,8 +132,15 @@ def extract_video_info(url):
             ydl_opts = build_ydl_opts(cookie_path, client, skip_download=True)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
+
+            # Garante que o cliente retornou formatos úteis
+            if not info or not info.get("formats"):
+                print(f"Client {client} não retornou formatos, tentando próximo...")
+                last_error = f"Client {client} retornou info sem formatos"
+                continue
+
             info["used_client"] = client
-            print(f"Sucesso com client: {client}")
+            print(f"Sucesso com client: {client} ({len(info.get('formats', []))} formatos)")
             return info
         except Exception as e:
             last_error = str(e)
