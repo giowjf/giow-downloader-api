@@ -81,12 +81,23 @@ def test_environment():
     except Exception as e:
         check("Node.js disponível", False, str(e))
 
-    # ffmpeg
-    try:
-        r = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=5)
-        check("ffmpeg instalado", r.returncode == 0)
-    except FileNotFoundError:
-        check("ffmpeg instalado", False, "ffmpeg não encontrado no PATH")
+    # ffmpeg — verifica múltiplos paths possíveis
+    import shutil
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        try:
+            r = subprocess.run([ffmpeg_path, "-version"], capture_output=True, text=True, timeout=5)
+            check(f"ffmpeg instalado ({ffmpeg_path})", r.returncode == 0)
+        except Exception as e:
+            check("ffmpeg instalado", False, str(e))
+    else:
+        # No CI pode estar em /usr/bin sem estar no PATH do subprocess
+        for candidate in ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg"]:
+            if os.path.exists(candidate):
+                check(f"ffmpeg instalado ({candidate})", True)
+                break
+        else:
+            check("ffmpeg instalado", False, "ffmpeg não encontrado no PATH nem em paths comuns")
 
     # Flask
     try:
