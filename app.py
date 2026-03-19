@@ -18,8 +18,9 @@ CORS(
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Clientes em ordem de confiabilidade para extração de metadados
-YOUTUBE_CLIENTS = ["mweb", "android", "ios", "tv", "web_embedded", "web_creator", "web"]
+# Clientes YouTube em ordem de preferência.
+# "mweb" e "android" são os mais tolerantes com IPs de datacenter.
+YOUTUBE_CLIENTS = ["mweb", "android", "ios", "tv", "web_embedded", "web"]
 
 
 def cors_preflight():
@@ -35,72 +36,65 @@ def get_cookie_file():
     Retorna path de arquivo de cookies temporário.
     Prioridade:
       1. Env var YOUTUBE_COOKIES_B64 (conteúdo do cookies.txt em base64)
-      2. Secret File do Render em /etc/secrets/cookies.txt
+      2. Secret File do Render em /etc/secrets/cookies.txt  ← você está usando este
       3. Arquivo fisico /app/cookies.txt (fallback legado)
     """
+    # 1. Env var base64
     cookies_b64 = os.environ.get("YOUTUBE_COOKIES_B64")
     if cookies_b64:
         try:
             cookies_data = base64.b64decode(cookies_b64).decode("utf-8")
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, dir="/tmp"
-            )
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
             tmp.write(cookies_data)
             tmp.flush()
             tmp.close()
-            print("Cookies carregados via YOUTUBE_COOKIES_B64")
+            print(f"[cookies] Carregados via YOUTUBE_COOKIES_B64 ({len(cookies_data)} bytes)")
             return tmp.name
         except Exception as e:
-            print(f"Erro ao decodificar YOUTUBE_COOKIES_B64: {e}")
+            print(f"[cookies] Erro ao decodificar YOUTUBE_COOKIES_B64: {e}")
 
-    # Secret File do Render — copia para /tmp pois /etc/secrets é read-only
+    # 2. Secret File do Render (/etc/secrets/cookies.txt)
     if os.path.exists("/etc/secrets/cookies.txt"):
         try:
             with open("/etc/secrets/cookies.txt", "r") as f:
                 data = f.read()
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, dir="/tmp"
-            )
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
             tmp.write(data)
             tmp.flush()
             tmp.close()
-            print("Cookies copiados de /etc/secrets/cookies.txt para /tmp")
+            print(f"[cookies] Carregados de /etc/secrets/cookies.txt ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
-            print(f"Erro ao copiar cookies do Secret File: {e}")
+            print(f"[cookies] Erro ao ler /etc/secrets/cookies.txt: {e}")
 
-    # Fallback legado — também copia para /tmp por segurança
+    # 3. Fallback legado
     if os.path.exists("/app/cookies.txt"):
         try:
             with open("/app/cookies.txt", "r") as f:
                 data = f.read()
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", delete=False, dir="/tmp"
-            )
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
             tmp.write(data)
             tmp.flush()
             tmp.close()
-            print("Cookies copiados de /app/cookies.txt para /tmp")
+            print(f"[cookies] Carregados de /app/cookies.txt ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
-            print(f"Erro ao copiar cookies legados: {e}")
+            print(f"[cookies] Erro ao ler /app/cookies.txt: {e}")
 
-    print("Nenhum cookie encontrado — tentando sem autenticacao")
+    print("[cookies] NENHUM cookie encontrado — bot detection provável!")
     return None
 
 
-def build_ydl_opts(cookie_path, client, skip_download=True, output_path=None):
+def make_ydl_opts(cookie_path, client, extra=None):
+    """
+    Monta as opções base do yt-dlp para um cliente específico.
+    NÃO define 'format' aqui — cada chamador define o que precisa.
+    """
     opts = {
         "quiet": True,
         "nocheckcertificate": True,
-        "skip_download": skip_download,
         "retries": 3,
         "fragment_retries": 3,
-        # Ao analisar, não forçar validação de formato específico.
-        # "bestvideo/best" aceita qualquer formato disponível pelo cliente.
-        "format": "bestvideo/best",
-        # Não abortar se algum formato não estiver disponível neste cliente
-        "ignore_no_formats_error": True,
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -115,44 +109,57 @@ def build_ydl_opts(cookie_path, client, skip_download=True, output_path=None):
             }
         },
     }
+
     if cookie_path:
         opts["cookiefile"] = cookie_path
-    if output_path:
-        opts["outtmpl"] = output_path
 
-    # Suporte a po_token para contornar bot detection sem cookies
+    # Suporte a po_token (alternativa a cookies)
     po_token = os.environ.get("YOUTUBE_PO_TOKEN")
     visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA")
     if po_token and visitor_data:
         opts["extractor_args"]["youtube"]["po_token"] = [f"web+{po_token}"]
         opts["extractor_args"]["youtube"]["visitor_data"] = [visitor_data]
 
+    if extra:
+        opts.update(extra)
+
     return opts
 
 
 def extract_video_info(url):
+    """
+    Tenta extrair metadados + lista COMPLETA de formatos do vídeo.
+    Usa skip_download=True e format="bestvideo+bestaudio/best" para
+    forçar o yt-dlp a listar todos os streams disponíveis.
+    """
     cookie_path = get_cookie_file()
     last_error = None
 
     for client in YOUTUBE_CLIENTS:
         try:
-            print(f"Tentando client: {client}")
-            ydl_opts = build_ydl_opts(cookie_path, client, skip_download=True)
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            print(f"[analyze] Tentando client: {client}")
+            opts = make_ydl_opts(cookie_path, client, extra={
+                "skip_download": True,
+                # Não especificar format aqui faz o yt-dlp retornar TODOS os formatos
+                # disponíveis para o cliente sem filtrar.
+            })
+
+            with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
             if not info:
-                last_error = f"Client {client} retornou info vazio"
-                print(last_error)
+                last_error = f"Client {client} retornou vazio"
+                print(f"[analyze] {last_error}")
                 continue
 
+            n = len(info.get("formats") or [])
+            print(f"[analyze] Sucesso com {client}: {n} formatos encontrados")
             info["used_client"] = client
-            n_formats = len(info.get("formats") or [])
-            print(f"Sucesso com client: {client} ({n_formats} formatos)")
             return info
+
         except Exception as e:
             last_error = str(e)
-            print(f"Client {client} falhou: {last_error[:120]}")
+            print(f"[analyze] Client {client} falhou: {last_error[:150]}")
             continue
 
     raise Exception(f"Todos os clientes falharam. Ultimo erro: {last_error}")
@@ -178,11 +185,11 @@ def analyze():
             vcodec = f.get("vcodec") or ""
             acodec = f.get("acodec") or ""
 
-            # Pular streams de audio-only (vcodec=="none"); null/ausente = manter
+            # Ignorar streams de áudio puro (sem vídeo)
             if vcodec == "none":
                 continue
 
-            # Pular formatos sem resolucao util (storyboards, thumbnails)
+            # Ignorar formatos sem resolução válida (storyboards, etc)
             height = f.get("height") or 0
             resolution = f.get("resolution") or (f"{height}p" if height else None)
             if not resolution or resolution in ("none", "0", "0p"):
@@ -192,22 +199,27 @@ def analyze():
             if key in seen:
                 continue
             seen.add(key)
+
             formats.append({
                 "format_id": f.get("format_id"),
                 "ext": f.get("ext"),
                 "resolution": resolution,
                 "filesize": f.get("filesize") or f.get("filesize_approx"),
                 "fps": f.get("fps"),
-                "acodec": acodec,
+                "acodec": acodec,  # "none" = DASH sem áudio (precisa de mux)
             })
 
+        # MP3 sempre disponível via conversão
         formats.append({
             "format_id": "mp3",
             "ext": "mp3",
             "resolution": "audio only",
             "filesize": None,
             "fps": None,
+            "acodec": "mp3",
         })
+
+        print(f"[analyze] Retornando {len(formats)} formatos para o front")
 
         return jsonify({
             "title": info.get("title"),
@@ -231,7 +243,7 @@ def download():
     url = data.get("url")
     mode = data.get("mode", "mp4")
     format_id = data.get("format_id")
-    preferred_client = data.get("preferred_client")  # cliente que funcionou no /analyze
+    preferred_client = data.get("preferred_client")
 
     if not url:
         return jsonify({"error": "missing url"}), 400
@@ -257,9 +269,13 @@ def download():
 @app.route("/")
 def health():
     cookie_path = get_cookie_file()
+    # Checar existência dos secrets
+    secrets_exist = os.path.exists("/etc/secrets/cookies.txt")
     return jsonify({
         "status": "running",
-        "cookies": "present" if cookie_path else "missing",
+        "cookies_loaded": cookie_path is not None,
+        "secrets_file_exists": secrets_exist,
+        "cookies_b64_env": bool(os.environ.get("YOUTUBE_COOKIES_B64")),
     })
 
 
