@@ -14,6 +14,13 @@ jobs:
       - name: Checkout do repositório
         uses: actions/checkout@v4
 
+      - name: Instalar ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          which ffmpeg
+          ffmpeg -version | head -1
+
       - name: Configurar Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -24,13 +31,20 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Instalar dependências
+      - name: Instalar dependências Python
         run: pip install "yt-dlp[default]" flask flask-cors "gunicorn[gevent]"
+
+      - name: Verificar ambiente antes dos testes
+        run: |
+          echo "Python: $(python --version)"
+          echo "Node: $(node --version)"
+          echo "ffmpeg: $(which ffmpeg)"
+          echo "yt-dlp: $(yt-dlp --version)"
 
       - name: Rodar testes unitários
         run: python test_suite.py unit
 
-      - name: Verificar sintaxe de todos os arquivos Python
+      - name: Verificar sintaxe Python
         run: |
           python -m py_compile app.py
           python -m py_compile downloader.py
