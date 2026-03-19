@@ -59,10 +59,16 @@ def get_cookie_file():
     return None
 
 
-def download_video(url, mode="mp4", format_id=None):
+def download_video(url, mode="mp4", format_id=None, preferred_client=None):
     file_id = str(uuid.uuid4())
     output_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.%(ext)s")
     cookie_path = get_cookie_file()
+
+    # Prioriza o cliente que funcionou no /analyze, evitando incompatibilidade de format_id
+    clients_to_try = list(YOUTUBE_CLIENTS)
+    if preferred_client and preferred_client in clients_to_try:
+        clients_to_try.remove(preferred_client)
+        clients_to_try.insert(0, preferred_client)
 
     base_opts = {
         "outtmpl": output_path,
@@ -91,12 +97,25 @@ def download_video(url, mode="mp4", format_id=None):
             }]
         })
     elif format_id and format_id != "mp3":
-        base_opts["format"] = f"{format_id}+bestaudio/best[height<=1080]/best"
+        # Fallbacks em ordem:
+        #   1. format_id + melhor áudio m4a (mux perfeito para mp4)
+        #   2. format_id + qualquer áudio disponível
+        #   3. format_id sozinho (já pode ter áudio embutido)
+        #   4. melhor vídeo+áudio genérico até 1080p
+        base_opts["format"] = (
+            f"{format_id}+bestaudio[ext=m4a]/"
+            f"{format_id}+bestaudio/"
+            f"{format_id}/"
+            f"bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+        )
     else:
-        base_opts["format"] = "bestvideo[height<=1080]+bestaudio/best"
+        base_opts["format"] = (
+            "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/"
+            "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+        )
 
     last_error = None
-    for client in YOUTUBE_CLIENTS:
+    for client in clients_to_try:
         try:
             opts = dict(base_opts)
 

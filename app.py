@@ -200,12 +200,13 @@ def download():
     url = data.get("url")
     mode = data.get("mode", "mp4")
     format_id = data.get("format_id")
+    preferred_client = data.get("preferred_client")  # cliente que funcionou no /analyze
 
     if not url:
         return jsonify({"error": "missing url"}), 400
 
     try:
-        filename = download_video(url, mode, format_id)
+        filename = download_video(url, mode, format_id, preferred_client)
         path = os.path.join(DOWNLOAD_DIR, filename)
         response = send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True)
 
