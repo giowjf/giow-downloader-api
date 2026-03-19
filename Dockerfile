@@ -2,26 +2,32 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Dependências do sistema: apenas o essencial
+# Node.js 20 (necessário para o bgutil pot provider)
 RUN apt-get update && apt-get install -y \
   ffmpeg \
   curl \
+  supervisor \
+  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && apt-get install -y nodejs \
   && rm -rf /var/lib/apt/lists/*
 
 # Instalar dependências Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir bgutil-ytdlp-pot-provider
 
-# Sempre garantir yt-dlp mais recente no build
-RUN pip install -U yt-dlp
+# Instalar o servidor bgutil (gerador automático de PO Token)
+RUN pip show bgutil-ytdlp-pot-provider | grep Location | awk '{print $2}' | \
+    xargs -I{} find {} -name "server" -type d 2>/dev/null | head -1 > /tmp/server_path.txt || true
 
-# Copiar código
+# Copiar código da API
 COPY . .
-
-# Criar pasta de downloads temporários
 RUN mkdir -p /tmp/downloads
+
+# Configurar supervisor para rodar API + bgutil server juntos
+RUN mkdir -p /etc/supervisor/conf.d
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 EXPOSE 5000
 
-# startup.sh atualiza yt-dlp antes de subir o servidor
-CMD ["bash", "-c", "pip install -q -U yt-dlp && gunicorn -b 0.0.0.0:5000 --timeout 180 --workers 2 app:app"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
