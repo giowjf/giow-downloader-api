@@ -320,6 +320,12 @@ def download():
         path = os.path.join(DOWNLOAD_DIR, filename)
         response = send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True)
 
+        # Content-Length permite o front calcular % de progresso real
+        try:
+            response.headers["Content-Length"] = str(os.path.getsize(path))
+        except Exception:
+            pass
+
         @response.call_on_close
         def cleanup():
             try:
