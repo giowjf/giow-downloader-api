@@ -15,14 +15,17 @@ CORS(app, resources={r"/*": {"origins": "*"}},
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Clientes em ordem de preferência para IPs de datacenter.
-# android: retorna DASH sem SABR — funciona sem PO Token
-# web,default: melhor qualidade mas exige PO Token
-# ios, mweb: fallbacks
-ANALYZE_CLIENTS = [
-    ["android"],
-    ["web", "default"],
-    ["ios"],
+# Clientes compatíveis COM cookies (web suporta, android/ios não suportam)
+CLIENTS_WITH_COOKIES = [
+    ["web", "default"],   # melhor qualidade com cookies
+    ["mweb"],             # fallback HLS
+]
+
+# Clientes compatíveis SEM cookies
+CLIENTS_WITHOUT_COOKIES = [
+    ["android"],          # DASH sem SABR, sem necessidade de PO Token
+    ["ios"],              # DASH com GVS token
+    ["web", "default"],  # fallback
     ["mweb"],
 ]
 
@@ -110,12 +113,17 @@ def build_extractor_args(client_list):
 def extract_video_info(url):
     """
     Tenta extrair metadados do vídeo testando múltiplos clientes em sequência.
-    Para na primeira tentativa bem-sucedida que retorne formatos de vídeo.
+    Usa clientes diferentes dependendo se cookies estão disponíveis,
+    pois android/ios não suportam cookies no yt-dlp.
     """
     cookie_path = get_cookie_file()
     last_error = None
 
-    for client_list in ANALYZE_CLIENTS:
+    # Escolhe lista de clientes baseado na disponibilidade de cookies
+    clients = CLIENTS_WITH_COOKIES if cookie_path else CLIENTS_WITHOUT_COOKIES
+    print(f"[analyze] Usando {'clientes com cookies' if cookie_path else 'clientes sem cookies'}: {clients}")
+
+    for client_list in clients:
         label = ",".join(client_list)
         try:
             print(f"[analyze] Tentando client={label}")
@@ -177,83 +185,48 @@ def check_node():
 
 def check_ytdlp_formats(url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"):
     """
-    Testa extração real com verbose para ver exatamente o que o yt-dlp reporta.
+    Testa extração real do yt-dlp.
+    Retorna quantos formatos de vídeo foram encontrados.
     """
     cookie_path = get_cookie_file()
-    import io, sys
+    try:
+        opts = {
+            "quiet": True,
+            "skip_download": True,
+            "nocheckcertificate": True,
+            "check_formats": False,
+            "ignore_no_formats_error": True,
+            "extractor_args": {"youtube": build_extractor_args(["android"])},
+        }
+        if cookie_path:
+            opts["cookiefile"] = cookie_path
 
-    results_by_client = {}
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
 
-    for client_list in [["android"], ["web", "default"], ["ios"], ["mweb"]]:
-        label = ",".join(client_list)
-        try:
-            # Captura output verbose do yt-dlp
-            log_lines = []
-            class LogCapture:
-                def debug(self, msg): 
-                    if "WARNING" in msg or "format" in msg.lower() or "pot" in msg.lower() or "token" in msg.lower():
-                        log_lines.append(f"[DEBUG] {msg[:200]}")
-                def warning(self, msg): log_lines.append(f"[WARN] {msg[:200]}")
-                def error(self, msg): log_lines.append(f"[ERROR] {msg[:200]}")
+        all_fmts = info.get("formats") or []
+        video_fmts = [f for f in all_fmts
+                      if (f.get("vcodec") or "none") != "none"
+                      and (f.get("height") or 0) > 0]
+        resolutions = sorted(set(
+            f"{f.get('height')}p" for f in video_fmts if f.get("height")
+        ), key=lambda x: int(x[:-1]), reverse=True)[:5]
 
-            opts = {
-                "quiet": False,
-                "verbose": False,
-                "logger": LogCapture(),
-                "skip_download": True,
-                "nocheckcertificate": True,
-                "check_formats": False,
-                "ignore_no_formats_error": True,
-                "extractor_args": {"youtube": build_extractor_args(client_list)},
-            }
-            if cookie_path:
-                opts["cookiefile"] = cookie_path
-
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-
-            all_fmts = info.get("formats") or []
-            video_fmts = [f for f in all_fmts
-                          if (f.get("vcodec") or "none") != "none"
-                          and (f.get("height") or 0) > 0]
-            audio_fmts = [f for f in all_fmts
-                          if (f.get("vcodec") or "none") == "none"
-                          and (f.get("acodec") or "none") != "none"]
-
-            # Amostra dos formatos para diagnóstico
-            fmt_sample = [
-                {"id": f.get("format_id"), "ext": f.get("ext"),
-                 "vcodec": f.get("vcodec"), "height": f.get("height"),
-                 "acodec": f.get("acodec")}
-                for f in all_fmts[:5]
-            ]
-
-            results_by_client[label] = {
-                "ok": len(video_fmts) > 0,
-                "total": len(all_fmts),
-                "video": len(video_fmts),
-                "audio": len(audio_fmts),
-                "fmt_sample": fmt_sample,
-                "warnings": log_lines[:5],
-                "resolutions": sorted(set(
-                    f"{f.get('height')}p" for f in video_fmts if f.get("height")
-                ), key=lambda x: int(x[:-1]), reverse=True)[:5],
-            }
-
-        except Exception as e:
-            results_by_client[label] = {
-                "ok": False,
-                "error": str(e)[:300]
-            }
-
-    # Resultado final: primeiro cliente que funcionou
-    best = next((v for v in results_by_client.values() if v.get("ok")), None)
-    return {
-        "ok": best is not None,
-        "best_client": next((k for k, v in results_by_client.items() if v.get("ok")), None),
-        "per_client": results_by_client,
-        "summary": best or {"error": "Nenhum cliente retornou formatos de vídeo"},
-    }
+        return {
+            "ok": len(video_fmts) > 0,
+            "total_formats": len(all_fmts),
+            "video_formats": len(video_fmts),
+            "sample_resolutions": resolutions,
+        }
+    except Exception as e:
+        error = str(e)
+        if "Sign in" in error or "bot" in error.lower():
+            cause = "bot_detection"
+        elif "format" in error.lower():
+            cause = "no_formats"
+        else:
+            cause = "unknown"
+        return {"ok": False, "error": error[:300], "cause": cause}
 
 
 # ─── Rotas ──────────────────────────────────────────────────────────────────

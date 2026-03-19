@@ -7,11 +7,17 @@ import tempfile
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Mesma ordem do app.py — android primeiro por retornar DASH sem SABR
-DOWNLOAD_CLIENTS = [
-    ["android"],
+# Clientes compatíveis COM cookies (android/ios não suportam cookies no yt-dlp)
+CLIENTS_WITH_COOKIES = [
     ["web", "default"],
+    ["mweb"],
+]
+
+# Clientes compatíveis SEM cookies
+CLIENTS_WITHOUT_COOKIES = [
+    ["android"],
     ["ios"],
+    ["web", "default"],
     ["mweb"],
 ]
 
@@ -77,8 +83,9 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
     output_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.%(ext)s")
     cookie_path = get_cookie_file()
 
-    # Monta lista de clientes — prioriza o que funcionou no /analyze
-    clients_to_try = list(DOWNLOAD_CLIENTS)
+    # Escolhe lista de clientes baseado na disponibilidade de cookies
+    # android/ios não suportam cookies no yt-dlp — seriam descartados com aviso
+    clients_to_try = list(CLIENTS_WITH_COOKIES if cookie_path else CLIENTS_WITHOUT_COOKIES)
     if preferred_client:
         preferred = [c.strip() for c in preferred_client.split(",") if c.strip()]
         if preferred and preferred not in clients_to_try:
