@@ -2,11 +2,24 @@ import os
 import subprocess
 import base64
 import tempfile
+import time
+import hashlib
+import concurrent.futures
 import urllib.request
 import yt_dlp
 from flask import Flask, request, jsonify, send_from_directory, make_response
 from flask_cors import CORS
 from downloader import download_video
+
+# ─── Cache em memória ───────────────────────────────────────────────────────
+# Cookie carregado 1x e mantido em memória — evita leitura de disco por request
+_cookie_cache = {"path": None, "loaded_at": 0}
+COOKIE_TTL = 3600  # recarrega do disco a cada 1h
+
+# Cache de análise de vídeo — evita re-consultar o YouTube para o mesmo vídeo
+# Chave: hash da URL | Valor: (info_dict, timestamp)
+_analyze_cache = {}
+ANALYZE_TTL = 300  # 5 minutos — tempo suficiente para o usuário escolher formato
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}},
@@ -40,9 +53,25 @@ def cors_preflight():
 
 def get_cookie_file():
     """
-    Carrega cookies em ordem de prioridade.
-    Retorna path do arquivo temporário ou None.
+    Carrega cookies com cache em memória.
+    Lê do disco apenas na primeira vez ou após COOKIE_TTL segundos.
     """
+    global _cookie_cache
+    now = time.time()
+
+    # Retorna do cache se ainda válido e arquivo ainda existe
+    if (_cookie_cache["path"]
+            and os.path.exists(_cookie_cache["path"])
+            and now - _cookie_cache["loaded_at"] < COOKIE_TTL):
+        return _cookie_cache["path"]
+
+    path = _load_cookie_file()
+    _cookie_cache = {"path": path, "loaded_at": now}
+    return path
+
+
+def _load_cookie_file():
+    """Carrega cookies do disco — chamado apenas pelo cache."""
     # 1. Env var base64
     cookies_b64 = os.environ.get("YOUTUBE_COOKIES_B64")
     if cookies_b64:
@@ -110,63 +139,104 @@ def build_extractor_args(client_list):
     return args
 
 
+def _fetch_info_for_client(url, client_list, cookie_path):
+    """Tenta extrair info para um único cliente. Retorna (info, label) ou raises."""
+    label = ",".join(client_list)
+    opts = {
+        "quiet": True,
+        "skip_download": True,
+        "nocheckcertificate": True,
+        "check_formats": False,
+        "ignore_no_formats_error": True,
+        "extractor_args": {"youtube": build_extractor_args(client_list)},
+        "http_headers": {"Accept-Language": "en-US,en;q=0.9"},
+        "js_runtimes": {"node": {}},
+    }
+    if cookie_path:
+        opts["cookiefile"] = cookie_path
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    if not info:
+        raise ValueError(f"client={label} retornou vazio")
+
+    all_fmts = info.get("formats") or []
+    video_fmts = [f for f in all_fmts
+                  if (f.get("vcodec") or "none") != "none"
+                  and (f.get("height") or 0) > 0]
+
+    if len(video_fmts) == 0:
+        raise ValueError(f"client={label} sem formatos de vídeo ({len(all_fmts)} total)")
+
+    info["used_client"] = label
+    return info
+
+
 def extract_video_info(url):
     """
-    Tenta extrair metadados do vídeo testando múltiplos clientes em sequência.
-    Usa clientes diferentes dependendo se cookies estão disponíveis,
-    pois android/ios não suportam cookies no yt-dlp.
+    Extrai metadados com cache + tentativas paralelas de clientes.
+
+    Cache: vídeos já analisados nos últimos 5min retornam instantaneamente.
+    Paralelo: tenta os dois primeiros clientes simultaneamente — usa o que
+    responder primeiro com formatos de vídeo válidos.
     """
+    # ── Cache hit ──────────────────────────────────────────────────────────
+    url_key = hashlib.md5(url.encode()).hexdigest()
+    if url_key in _analyze_cache:
+        cached_info, cached_at = _analyze_cache[url_key]
+        if time.time() - cached_at < ANALYZE_TTL:
+            print(f"[analyze] Cache hit para {url[:60]} — retornando sem consultar YouTube")
+            return cached_info
+        else:
+            del _analyze_cache[url_key]
+
+    # ── Busca real ─────────────────────────────────────────────────────────
     cookie_path = get_cookie_file()
+    clients = CLIENTS_WITH_COOKIES if cookie_path else CLIENTS_WITHOUT_COOKIES
+    print(f"[analyze] Cache miss — consultando YouTube com {len(clients)} clientes")
+
     last_error = None
 
-    # Escolhe lista de clientes baseado na disponibilidade de cookies
-    clients = CLIENTS_WITH_COOKIES if cookie_path else CLIENTS_WITHOUT_COOKIES
-    print(f"[analyze] Usando {'clientes com cookies' if cookie_path else 'clientes sem cookies'}: {clients}")
+    # Tenta os dois primeiros clientes em paralelo
+    primary_clients = clients[:2]
+    fallback_clients = clients[2:]
 
-    for client_list in clients:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {
+            executor.submit(_fetch_info_for_client, url, cl, cookie_path): cl
+            for cl in primary_clients
+        }
+        for future in concurrent.futures.as_completed(futures):
+            cl = futures[future]
+            label = ",".join(cl)
+            try:
+                info = future.result()
+                # Cancela futures restantes (best-effort)
+                for f in futures:
+                    f.cancel()
+                all_fmts = info.get("formats") or []
+                video_fmts = [f for f in all_fmts
+                              if (f.get("vcodec") or "none") != "none"
+                              and (f.get("height") or 0) > 0]
+                print(f"[analyze] Paralelo: client={label} venceu — {len(video_fmts)} formatos de vídeo")
+                _analyze_cache[url_key] = (info, time.time())
+                return info
+            except Exception as e:
+                last_error = str(e)
+                print(f"[analyze] Paralelo: client={label} falhou: {last_error[:150]}")
+
+    # Fallback sequencial para clientes restantes
+    for client_list in fallback_clients:
         label = ",".join(client_list)
         try:
-            print(f"[analyze] Tentando client={label}")
-            opts = {
-                "quiet": True,
-                "skip_download": True,
-                "nocheckcertificate": True,
-                "check_formats": False,
-                "ignore_no_formats_error": True,
-                "extractor_args": {"youtube": build_extractor_args(client_list)},
-                "http_headers": {"Accept-Language": "en-US,en;q=0.9"},
-                "js_runtimes": {"node": {}},
-            }
-            if cookie_path:
-                opts["cookiefile"] = cookie_path
-
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-
-            if not info:
-                last_error = f"client={label} retornou vazio"
-                print(f"[analyze] {last_error}")
-                continue
-
-            all_fmts = info.get("formats") or []
-            video_fmts = [f for f in all_fmts
-                          if (f.get("vcodec") or "none") != "none"
-                          and (f.get("height") or 0) > 0]
-
-            print(f"[analyze] client={label} OK — {len(all_fmts)} formatos totais, {len(video_fmts)} com vídeo")
-
-            if len(video_fmts) == 0:
-                last_error = f"client={label} retornou {len(all_fmts)} formatos mas nenhum com vídeo"
-                print(f"[analyze] {last_error} — tentando próximo cliente")
-                continue
-
-            info["used_client"] = label
+            print(f"[analyze] Fallback sequencial: client={label}")
+            info = _fetch_info_for_client(url, client_list, cookie_path)
+            _analyze_cache[url_key] = (info, time.time())
             return info
-
         except Exception as e:
             last_error = str(e)
-            print(f"[analyze] client={label} falhou: {last_error[:300]}")
-            continue
+            print(f"[analyze] Fallback client={label} falhou: {last_error[:150]}")
 
     raise Exception(f"Todos os clientes falharam. Ultimo erro: {last_error}")
 
@@ -430,6 +500,28 @@ def diag():
 
     print(f"[diag] Resultado: {result['overall']}")
     return jsonify(result)
+
+
+@app.route("/warmup")
+def warmup():
+    """
+    Endpoint de warm-up — mantém o container ativo no Render Free.
+    Configure um cron externo (ex: cron-job.org) para chamar a cada 14min.
+    Também pré-carrega o cookie em memória.
+    """
+    get_cookie_file()  # pré-carrega cookie no cache
+    return jsonify({"status": "warm", "cache_entries": len(_analyze_cache)})
+
+
+@app.route("/cache/clear", methods=["POST"])
+def clear_cache():
+    """Limpa o cache de análise — útil após renovar cookies."""
+    global _analyze_cache, _cookie_cache
+    count = len(_analyze_cache)
+    _analyze_cache.clear()
+    _cookie_cache = {"path": None, "loaded_at": 0}
+    print(f"[cache] Limpos {count} entradas de análise e cache de cookies")
+    return jsonify({"cleared": count, "status": "ok"})
 
 
 if __name__ == "__main__":
