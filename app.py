@@ -95,6 +95,9 @@ def make_ydl_opts(cookie_path, client, extra=None):
         "nocheckcertificate": True,
         "retries": 3,
         "fragment_retries": 3,
+        # Não validar disponibilidade de formato antes de tentar — evita
+        # "Requested format is not available" em IPs de datacenter
+        "check_formats": False,
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -140,8 +143,11 @@ def extract_video_info(url):
             print(f"[analyze] Tentando client: {client}")
             opts = make_ydl_opts(cookie_path, client, extra={
                 "skip_download": True,
-                # Não especificar format aqui faz o yt-dlp retornar TODOS os formatos
-                # disponíveis para o cliente sem filtrar.
+                # "all" retorna todos os formatos sem validar disponibilidade
+                "format": "all",
+                # Não abortar se algum formato não puder ser verificado
+                "check_formats": False,
+                "ignore_no_formats_error": True,
             })
 
             with yt_dlp.YoutubeDL(opts) as ydl:

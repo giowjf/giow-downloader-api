@@ -99,6 +99,8 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
         "retries": 3,
         "fragment_retries": 3,
         "format": fmt,
+        # Não validar disponibilidade do formato antes de baixar
+        "check_formats": False,
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
