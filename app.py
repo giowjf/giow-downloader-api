@@ -40,7 +40,7 @@ def get_cookie_file():
                 data = f.read()
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
             tmp.write(data); tmp.flush(); tmp.close()
-            print(f"[cookies] /etc/secrets/cookies.txt ({len(data)} bytes)")
+            print(f"[cookies] /etc/secrets ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
             print(f"[cookies] Erro secret: {e}")
@@ -51,84 +51,81 @@ def get_cookie_file():
                 data = f.read()
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
             tmp.write(data); tmp.flush(); tmp.close()
-            print(f"[cookies] /app/cookies.txt ({len(data)} bytes)")
+            print(f"[cookies] /app ({len(data)} bytes)")
             return tmp.name
         except Exception as e:
             print(f"[cookies] Erro /app: {e}")
 
-    print("[cookies] Nenhum cookie encontrado!")
+    print("[cookies] Nenhum cookie!")
     return None
+
+
+def build_extractor_args(client_list):
+    """
+    Monta extractor_args seguindo a documentação oficial do yt-dlp:
+    https://github.com/yt-dlp/yt-dlp/wiki/Extractors
+
+    - po_token: necessário para web client em IPs de datacenter.
+      Formato: "web+TOKEN" (para cliente web logado com cookies)
+    - player_client: lista de clientes a usar.
+      "web,default" = cliente web + fallback padrão (recomendado pela doc oficial)
+    - formats=missing_pot: inclui formatos mesmo sem GVS PO Token
+      (necessário para ios/mweb em datacenter; pode retornar 403 no download)
+    """
+    args = {
+        "player_client": client_list,
+        "formats": ["missing_pot"],  # inclui formatos mesmo sem PO Token de GVS
+    }
+
+    po_token = os.environ.get("YOUTUBE_PO_TOKEN")
+    visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA")
+    if po_token:
+        # Formato: "web+TOKEN" — vincula o token ao cliente web
+        args["po_token"] = [f"web+{po_token}"]
+        if visitor_data:
+            args["visitor_data"] = [visitor_data]
+        print(f"[po_token] Configurado ✓")
+
+    return args
 
 
 def extract_video_info(url):
     """
-    Estratégia baseada nos issues #12482 e #16155 do yt-dlp (2025/2026):
-    - O cliente 'web' agora usa SABR (sem links diretos de download)
-    - O cliente 'android' ainda retorna formatos DASH baixáveis
-    - 'tv' retorna HLS muxado (qualidade limitada mas funciona)
-    - Combinação 'android,tv' cobre DASH + HLS como fallback
+    Tenta extrair metadados usando múltiplos clientes.
+
+    Ordem baseada na documentação oficial e issue #12482:
+    1. "web,default" com po_token (melhor qualidade, recomendado pela doc oficial)
+    2. "android" (retorna DASH sem SABR, funciona sem po_token)
+    3. "ios" (DASH mas exige GVS PO Token; missing_pot força inclusão)
+    4. "mweb" (HLS muxado, qualidade menor mas mais compatível)
     """
     cookie_path = get_cookie_file()
     last_error = None
 
-    # Cada tentativa é uma combinação diferente de clientes + opções
     attempts = [
-        # 1. Android: único cliente que retorna DASH sem SABR em 2026
-        {
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android"],
-                    "formats": ["missing_pot"],
-                }
-            }
-        },
-        # 2. Android + TV juntos (mais formatos)
-        {
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android", "tv"],
-                    "formats": ["missing_pot"],
-                }
-            }
-        },
-        # 3. iOS: outro cliente com DASH direto
-        {
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["ios"],
-                    "formats": ["missing_pot"],
-                }
-            }
-        },
-        # 4. mweb: HLS mas com cookies pode ter formatos extras
-        {
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["mweb"],
-                    "formats": ["missing_pot"],
-                }
-            }
-        },
+        ["web", "default"],   # recomendado pela doc oficial com po_token
+        ["android"],           # único que retorna DASH sem SABR
+        ["ios"],               # DASH mas exige GVS po_token
+        ["mweb"],              # HLS, fallback final
     ]
 
-    for i, extra_args in enumerate(attempts):
-        client_label = extra_args["extractor_args"]["youtube"]["player_client"]
+    for client_list in attempts:
+        label = ",".join(client_list)
         try:
-            print(f"[analyze] Tentativa {i+1}: client={client_label}")
-
+            print(f"[analyze] Tentando player_client={label}")
             opts = {
                 "quiet": True,
                 "skip_download": True,
                 "nocheckcertificate": True,
                 "check_formats": False,
                 "ignore_no_formats_error": True,
+                "extractor_args": {
+                    "youtube": build_extractor_args(client_list)
+                },
                 "http_headers": {
-                    "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
                     "Accept-Language": "en-US,en;q=0.9",
                 },
             }
-            opts.update(extra_args)
-
             if cookie_path:
                 opts["cookiefile"] = cookie_path
 
@@ -136,24 +133,21 @@ def extract_video_info(url):
                 info = ydl.extract_info(url, download=False)
 
             if not info:
-                last_error = f"retornou vazio"
+                last_error = f"client={label} retornou vazio"
                 continue
 
             all_fmts = info.get("formats") or []
-            # Conta formatos de vídeo reais (não storyboards, não só-áudio)
-            video_fmts = [
-                f for f in all_fmts
-                if (f.get("vcodec") or "") not in ("none", "")
-                and (f.get("height") or 0) > 0
-            ]
-            print(f"[analyze] OK client={client_label}: {len(all_fmts)} total, {len(video_fmts)} vídeo")
+            video_fmts = [f for f in all_fmts
+                          if (f.get("vcodec") or "none") != "none"
+                          and (f.get("height") or 0) > 0]
 
-            info["used_clients"] = client_label
+            print(f"[analyze] OK client={label}: {len(all_fmts)} total, {len(video_fmts)} com vídeo")
+            info["used_client"] = label
             return info
 
         except Exception as e:
             last_error = str(e)
-            print(f"[analyze] client={client_label} falhou: {last_error[:200]}")
+            print(f"[analyze] client={label} falhou: {last_error[:200]}")
             continue
 
     raise Exception(f"Todos os clientes falharam. Ultimo erro: {last_error}")
@@ -178,11 +172,9 @@ def analyze():
             vcodec = f.get("vcodec") or ""
             acodec = f.get("acodec") or ""
 
-            # Pular áudio puro
             if vcodec == "none":
                 continue
 
-            # Pular storyboards e formatos sem resolução
             height = f.get("height") or 0
             resolution = f.get("resolution") or (f"{height}p" if height else None)
             if not resolution or resolution in ("none", "0", "0p"):
@@ -218,7 +210,7 @@ def analyze():
             "thumbnail": info.get("thumbnail"),
             "uploader": info.get("uploader"),
             "formats": formats,
-            "client_used": "+".join(info.get("used_clients", [])),
+            "client_used": info.get("used_client", ""),
         })
 
     except Exception as e:
@@ -259,13 +251,20 @@ def download():
 @app.route("/")
 def health():
     cookie_path = get_cookie_file()
+    po_token = os.environ.get("YOUTUBE_PO_TOKEN")
     return jsonify({
         "status": "running",
+        "yt_dlp_version": yt_dlp.version.__version__,
         "cookies_loaded": cookie_path is not None,
         "secrets_file_exists": os.path.exists("/etc/secrets/cookies.txt"),
         "cookies_b64_env": bool(os.environ.get("YOUTUBE_COOKIES_B64")),
-        "po_token_configured": bool(os.environ.get("YOUTUBE_PO_TOKEN")),
-        "yt_dlp_version": yt_dlp.version.__version__,
+        # po_token é ESSENCIAL para formatos de alta qualidade em datacenter
+        "po_token_configured": bool(po_token),
+        # Instrução clara se faltar o po_token
+        "po_token_needed": (
+            "Configure YOUTUBE_PO_TOKEN via Render > Environment. "
+            "Veja README.md para instruções."
+        ) if not po_token else "OK",
     })
 
 

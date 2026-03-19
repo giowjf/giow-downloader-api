@@ -24,7 +24,7 @@ def get_cookie_file():
                 data = f.read()
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, dir="/tmp")
             tmp.write(data); tmp.flush(); tmp.close()
-            print(f"[cookies] /etc/secrets/cookies.txt ({len(data)} bytes)")
+            print(f"[cookies] /etc/secrets ({len(data)} bytes)")
             return tmp.name
         except Exception:
             pass
@@ -38,6 +38,21 @@ def get_cookie_file():
         except Exception:
             pass
     return None
+
+
+def build_extractor_args(client_list):
+    """Monta extractor_args conforme doc oficial do yt-dlp."""
+    args = {
+        "player_client": client_list,
+        "formats": ["missing_pot"],
+    }
+    po_token = os.environ.get("YOUTUBE_PO_TOKEN")
+    visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA")
+    if po_token:
+        args["po_token"] = [f"web+{po_token}"]
+        if visitor_data:
+            args["visitor_data"] = [visitor_data]
+    return args
 
 
 def download_video(url, mode="mp4", format_id=None, preferred_client=None):
@@ -62,18 +77,18 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
             "bestvideo[height<=1080]+bestaudio/best"
         )
 
-    # Tentativas em ordem — android primeiro pois não usa SABR
+    # Ordem de tentativa — mesma lógica do /analyze
     attempts = [
+        ["web", "default"],
         ["android"],
-        ["android", "tv"],
         ["ios"],
         ["mweb"],
     ]
 
-    # Se o /analyze informou qual cliente funcionou, tenta ele primeiro
+    # Prioriza o cliente que funcionou no /analyze
     if preferred_client:
-        preferred = [c.strip() for c in preferred_client.split("+") if c.strip()]
-        if preferred not in attempts:
+        preferred = [c.strip() for c in preferred_client.split(",") if c.strip()]
+        if preferred and preferred not in attempts:
             attempts.insert(0, preferred)
 
     base_opts = {
@@ -84,9 +99,7 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
         "fragment_retries": 3,
         "format": fmt,
         "check_formats": False,
-        # User-Agent do app Android do YouTube
         "http_headers": {
-            "User-Agent": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
             "Accept-Language": "en-US,en;q=0.9",
         },
     }
@@ -102,17 +115,13 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
         base_opts["cookiefile"] = cookie_path
 
     last_error = None
-    for clients in attempts:
-        label = "+".join(clients)
+    for client_list in attempts:
+        label = ",".join(client_list)
         try:
             opts = dict(base_opts)
-            opts["extractor_args"] = {
-                "youtube": {
-                    "player_client": clients,
-                    "formats": ["missing_pot"],
-                }
-            }
-            print(f"[download] client={label} fmt={fmt[:60]}")
+            opts["extractor_args"] = {"youtube": build_extractor_args(client_list)}
+
+            print(f"[download] client={label} fmt={fmt[:80]}")
 
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -127,7 +136,7 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
 
         except Exception as e:
             last_error = str(e)
-            print(f"[download] {label} falhou: {last_error[:200]}")
+            print(f"[download] client={label} falhou: {last_error[:200]}")
             continue
 
     raise Exception(f"Download falhou em todos os clientes. Ultimo erro: {last_error}")
