@@ -7,8 +7,17 @@ import tempfile
 DOWNLOAD_DIR = "/tmp/downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+# Mesma ordem do app.py — android primeiro por retornar DASH sem SABR
+DOWNLOAD_CLIENTS = [
+    ["android"],
+    ["web", "default"],
+    ["ios"],
+    ["mweb"],
+]
+
 
 def get_cookie_file():
+    """Carrega cookies em ordem de prioridade. Idêntico ao app.py."""
     cookies_b64 = os.environ.get("YOUTUBE_COOKIES_B64")
     if cookies_b64:
         try:
@@ -18,6 +27,7 @@ def get_cookie_file():
             return tmp.name
         except Exception:
             pass
+
     if os.path.exists("/etc/secrets/cookies.txt"):
         try:
             with open("/etc/secrets/cookies.txt", "r") as f:
@@ -28,6 +38,7 @@ def get_cookie_file():
             return tmp.name
         except Exception:
             pass
+
     if os.path.exists("/app/cookies.txt"):
         try:
             with open("/app/cookies.txt", "r") as f:
@@ -37,18 +48,19 @@ def get_cookie_file():
             return tmp.name
         except Exception:
             pass
+
     return None
 
 
 def build_extractor_args(client_list):
     """
-    Monta extractor_args para o yt-dlp.
-    O bgutil server na porta 4416 gera PO Token automaticamente.
+    Monta extractor_args.
+    Node.js no container habilita EJS nativo do yt-dlp — resolve PO Token
+    automaticamente sem servidor externo.
     """
     args = {
         "player_client": client_list,
-        "getpot_bgutil": [""],
-        "getpot_bgutil_baseurl": ["http://127.0.0.1:4416"],
+        "formats": ["missing_pot"],
     }
     # Fallback manual
     po_token = os.environ.get("YOUTUBE_PO_TOKEN")
@@ -65,10 +77,19 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
     output_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.%(ext)s")
     cookie_path = get_cookie_file()
 
-    # Seletor de formato
+    # Monta lista de clientes — prioriza o que funcionou no /analyze
+    clients_to_try = list(DOWNLOAD_CLIENTS)
+    if preferred_client:
+        preferred = [c.strip() for c in preferred_client.split(",") if c.strip()]
+        if preferred and preferred not in clients_to_try:
+            clients_to_try.insert(0, preferred)
+            print(f"[download] Priorizando client={preferred_client} (usado no /analyze)")
+
+    # Seletor de formato com fallbacks em cascata
     if mode == "mp3":
         fmt = "bestaudio/best"
     elif format_id and format_id != "mp3":
+        # Tenta o formato específico + mux de áudio, depois fallback genérico
         fmt = (
             f"{format_id}+bestaudio[ext=m4a]/"
             f"{format_id}+bestaudio/"
@@ -82,31 +103,15 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
             "bestvideo[height<=1080]+bestaudio/best"
         )
 
-    # Ordem de tentativa — mesma lógica do /analyze
-    attempts = [
-        ["web", "default"],
-        ["android"],
-        ["ios"],
-        ["mweb"],
-    ]
-
-    # Prioriza o cliente que funcionou no /analyze
-    if preferred_client:
-        preferred = [c.strip() for c in preferred_client.split(",") if c.strip()]
-        if preferred and preferred not in attempts:
-            attempts.insert(0, preferred)
-
     base_opts = {
         "outtmpl": output_path,
-        "quiet": False,
+        "quiet": False,           # logs visíveis no Render para debug
         "nocheckcertificate": True,
         "retries": 3,
         "fragment_retries": 3,
         "format": fmt,
         "check_formats": False,
-        "http_headers": {
-            "Accept-Language": "en-US,en;q=0.9",
-        },
+        "http_headers": {"Accept-Language": "en-US,en;q=0.9"},
     }
 
     if mode == "mp3":
@@ -120,13 +125,13 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
         base_opts["cookiefile"] = cookie_path
 
     last_error = None
-    for client_list in attempts:
+    for client_list in clients_to_try:
         label = ",".join(client_list)
         try:
             opts = dict(base_opts)
             opts["extractor_args"] = {"youtube": build_extractor_args(client_list)}
 
-            print(f"[download] client={label} fmt={fmt[:80]}")
+            print(f"[download] Tentando client={label} | formato={fmt[:60]}")
 
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -136,12 +141,13 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
                     base = os.path.splitext(os.path.basename(filename))[0]
                     filename = os.path.join(DOWNLOAD_DIR, base + ".mp3")
 
-                print(f"[download] Sucesso: {os.path.basename(filename)}")
-                return os.path.basename(filename)
+                final_name = os.path.basename(filename)
+                print(f"[download] Sucesso com client={label}: {final_name}")
+                return final_name
 
         except Exception as e:
             last_error = str(e)
-            print(f"[download] client={label} falhou: {last_error[:200]}")
+            print(f"[download] client={label} falhou: {last_error[:300]}")
             continue
 
     raise Exception(f"Download falhou em todos os clientes. Ultimo erro: {last_error}")
