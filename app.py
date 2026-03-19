@@ -62,29 +62,31 @@ def get_cookie_file():
 
 def build_extractor_args(client_list):
     """
-    Monta extractor_args seguindo a documentação oficial do yt-dlp:
-    https://github.com/yt-dlp/yt-dlp/wiki/Extractors
+    Monta extractor_args para o yt-dlp.
 
-    - po_token: necessário para web client em IPs de datacenter.
-      Formato: "web+TOKEN" (para cliente web logado com cookies)
-    - player_client: lista de clientes a usar.
-      "web,default" = cliente web + fallback padrão (recomendado pela doc oficial)
-    - formats=missing_pot: inclui formatos mesmo sem GVS PO Token
-      (necessário para ios/mweb em datacenter; pode retornar 403 no download)
+    O bgutil server roda na porta 4416 e é registrado via:
+    - getpot_bgutil: ativa o plugin bgutil-ytdlp-pot-provider
+    - getpot_bgutil_baseurl: aponta para o servidor local
+
+    Fallback manual via env var YOUTUBE_PO_TOKEN caso bgutil não esteja disponível.
     """
     args = {
         "player_client": client_list,
-        "formats": ["missing_pot"],  # inclui formatos mesmo sem PO Token de GVS
+        # Registra o servidor bgutil como provedor de PO Token
+        "getpot_bgutil": [""],
+        "getpot_bgutil_baseurl": ["http://127.0.0.1:4416"],
     }
 
+    # Fallback manual — usado apenas se bgutil não estiver rodando
     po_token = os.environ.get("YOUTUBE_PO_TOKEN")
     visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA")
     if po_token:
-        # Formato: "web+TOKEN" — vincula o token ao cliente web
         args["po_token"] = [f"web+{po_token}"]
         if visitor_data:
             args["visitor_data"] = [visitor_data]
-        print(f"[po_token] Configurado ✓")
+        print(f"[po_token] Usando token manual (fallback)")
+    else:
+        print(f"[po_token] Usando bgutil server em 127.0.0.1:4416")
 
     return args
 

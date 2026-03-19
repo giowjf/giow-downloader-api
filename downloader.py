@@ -41,11 +41,16 @@ def get_cookie_file():
 
 
 def build_extractor_args(client_list):
-    """Monta extractor_args conforme doc oficial do yt-dlp."""
+    """
+    Monta extractor_args para o yt-dlp.
+    O bgutil server na porta 4416 gera PO Token automaticamente.
+    """
     args = {
         "player_client": client_list,
-        "formats": ["missing_pot"],
+        "getpot_bgutil": [""],
+        "getpot_bgutil_baseurl": ["http://127.0.0.1:4416"],
     }
+    # Fallback manual
     po_token = os.environ.get("YOUTUBE_PO_TOKEN")
     visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA")
     if po_token:
