@@ -119,6 +119,14 @@ def build_ydl_opts(cookie_path, client, skip_download=True, output_path=None):
         opts["cookiefile"] = cookie_path
     if output_path:
         opts["outtmpl"] = output_path
+
+    # Suporte a po_token para contornar bot detection sem cookies
+    po_token = os.environ.get("YOUTUBE_PO_TOKEN")
+    visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA")
+    if po_token and visitor_data:
+        opts["extractor_args"]["youtube"]["po_token"] = [f"web+{po_token}"]
+        opts["extractor_args"]["youtube"]["visitor_data"] = [visitor_data]
+
     return opts
 
 
@@ -167,9 +175,19 @@ def analyze():
         seen = set()
 
         for f in info.get("formats", []):
-            if f.get("vcodec") == "none":
+            vcodec = f.get("vcodec") or ""
+            acodec = f.get("acodec") or ""
+
+            # Pular streams de audio-only (vcodec=="none"); null/ausente = manter
+            if vcodec == "none":
                 continue
-            resolution = f.get("resolution") or str(f.get("height", "?"))
+
+            # Pular formatos sem resolucao util (storyboards, thumbnails)
+            height = f.get("height") or 0
+            resolution = f.get("resolution") or (f"{height}p" if height else None)
+            if not resolution or resolution in ("none", "0", "0p"):
+                continue
+
             key = (f.get("ext"), resolution)
             if key in seen:
                 continue
@@ -178,8 +196,9 @@ def analyze():
                 "format_id": f.get("format_id"),
                 "ext": f.get("ext"),
                 "resolution": resolution,
-                "filesize": f.get("filesize"),
+                "filesize": f.get("filesize") or f.get("filesize_approx"),
                 "fps": f.get("fps"),
+                "acodec": acodec,
             })
 
         formats.append({

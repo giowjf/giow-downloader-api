@@ -119,9 +119,15 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
         try:
             opts = dict(base_opts)
 
-            # Mescla corretamente sem sobrescrever outras extractor_args
             opts.setdefault("extractor_args", {})
             opts["extractor_args"]["youtube"] = {"player_client": [client]}
+
+            # Se tiver po_token configurado, passa para autenticacao sem cookies
+            po_token = os.environ.get("YOUTUBE_PO_TOKEN")
+            visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA")
+            if po_token and visitor_data:
+                opts["extractor_args"]["youtube"]["po_token"] = [f"web+{po_token}"]
+                opts["extractor_args"]["youtube"]["visitor_data"] = [visitor_data]
 
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
