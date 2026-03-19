@@ -88,7 +88,7 @@ def build_extractor_args(client_list):
     Monta extractor_args para o yt-dlp.
 
     Com Node.js instalado no container, o yt-dlp usa EJS nativo para
-    resolver desafios do YouTube — elimina necessidade de bgutil externo.
+    resolver desafios do YouTube automaticamente.
 
     Fallback: env var YOUTUBE_PO_TOKEN para token manual.
     """
