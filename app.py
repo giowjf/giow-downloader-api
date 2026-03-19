@@ -133,14 +133,14 @@ def extract_video_info(url):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
-            # Garante que o cliente retornou formatos úteis
-            if not info or not info.get("formats"):
-                print(f"Client {client} não retornou formatos, tentando próximo...")
-                last_error = f"Client {client} retornou info sem formatos"
+            if not info:
+                last_error = f"Client {client} retornou info vazio"
+                print(last_error)
                 continue
 
             info["used_client"] = client
-            print(f"Sucesso com client: {client} ({len(info.get('formats', []))} formatos)")
+            n_formats = len(info.get("formats") or [])
+            print(f"Sucesso com client: {client} ({n_formats} formatos)")
             return info
         except Exception as e:
             last_error = str(e)

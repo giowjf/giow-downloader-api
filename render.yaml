@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: giow-downloader-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt && pip install -U yt-dlp
+    startCommand: gunicorn -b 0.0.0.0:5000 --timeout 180 --workers 2 app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
