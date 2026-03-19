@@ -13,21 +13,12 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Baixar o EJS solver script durante o build
-# Isso evita o erro "Signature solving failed" em runtime
-RUN yt-dlp --remote-components ejs:github --skip-download --print title \
-    "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>/dev/null || \
-    echo "[build] EJS solver baixado (ou falhou silenciosamente)"
-
-# Copiar código
+# Copiar código e scripts
 COPY . .
-RUN mkdir -p /tmp/downloads
+RUN mkdir -p /tmp/downloads && chmod +x /app/startup.sh
 
 EXPOSE 5000
 
-CMD ["gunicorn", "-b", "0.0.0.0:5000", \
-     "--timeout", "300", \
-     "--workers", "2", \
-     "--worker-class", "gevent", \
-     "--worker-connections", "10", \
-     "app:app"]
+# startup.sh baixa o EJS solver em runtime (onde há acesso à rede)
+# e depois inicia o gunicorn
+CMD ["/app/startup.sh"]

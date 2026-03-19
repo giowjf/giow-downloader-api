@@ -196,7 +196,8 @@ def check_ytdlp_formats(url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"):
             "nocheckcertificate": True,
             "check_formats": False,
             "ignore_no_formats_error": True,
-            "extractor_args": {"youtube": build_extractor_args(["android"])},
+            # Usa web,default pois é o cliente que suporta cookies
+            "extractor_args": {"youtube": build_extractor_args(["web", "default"])},
         }
         if cookie_path:
             opts["cookiefile"] = cookie_path
