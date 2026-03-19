@@ -2,11 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Node.js 20 (necessário para o bgutil pot provider)
+# Node.js 20 + dependências do sistema
 RUN apt-get update && apt-get install -y \
-  ffmpeg \
-  curl \
-  supervisor \
+  ffmpeg curl supervisor git \
   && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
   && apt-get install -y nodejs \
   && rm -rf /var/lib/apt/lists/*
@@ -14,17 +12,21 @@ RUN apt-get update && apt-get install -y \
 # Instalar dependências Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir bgutil-ytdlp-pot-provider
 
-# Instalar o servidor bgutil (gerador automático de PO Token)
-RUN pip show bgutil-ytdlp-pot-provider | grep Location | awk '{print $2}' | \
-    xargs -I{} find {} -name "server" -type d 2>/dev/null | head -1 > /tmp/server_path.txt || true
+# Clonar e compilar o servidor bgutil (JavaScript)
+# O plugin Python (bgutil-ytdlp-pot-provider) é só o conector —
+# o servidor JS precisa ser construído separadamente
+RUN git clone --single-branch --branch master \
+    https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git \
+    /bgutil
+
+RUN cd /bgutil/server && npm ci && npx tsc
 
 # Copiar código da API
 COPY . .
-RUN mkdir -p /tmp/downloads
+RUN mkdir -p /tmp/downloads /var/log/supervisor
 
-# Configurar supervisor para rodar API + bgutil server juntos
+# Configurar supervisord
 RUN mkdir -p /etc/supervisor/conf.d
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
