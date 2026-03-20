@@ -386,23 +386,47 @@ def download():
 
     print(f"[download] Iniciando: mode={mode} format_id={format_id} client={preferred_client}")
     try:
-        filename = download_video(url, mode, format_id, preferred_client)
+        # Passa o cookie já em cache — evita leitura dupla do disco no downloader.py
+        cookie_path = get_cookie_file()
+        filename = download_video(url, mode, format_id, preferred_client, cookie_path=cookie_path)
         path = os.path.join(DOWNLOAD_DIR, filename)
-        response = send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True)
 
-        # Content-Length permite o front calcular % de progresso real
+        # Streaming: lê o arquivo em chunks e envia conforme lê
+        # O browser começa a receber antes do arquivo estar 100% baixado
+        ext = "mp3" if mode == "mp3" else "mp4"
+        mime = "audio/mpeg" if mode == "mp3" else "video/mp4"
+
+        file_size = None
         try:
-            response.headers["Content-Length"] = str(os.path.getsize(path))
+            file_size = os.path.getsize(path)
         except Exception:
             pass
 
-        @response.call_on_close
-        def cleanup():
+        def generate():
             try:
-                os.remove(path)
-                print(f"[download] Arquivo removido: {filename}")
-            except Exception:
-                pass
+                with open(path, "rb") as f:
+                    while True:
+                        chunk = f.read(256 * 1024)  # 256KB por chunk
+                        if not chunk:
+                            break
+                        yield chunk
+            finally:
+                try:
+                    os.remove(path)
+                    print(f"[download] Arquivo removido: {filename}")
+                except Exception:
+                    pass
+
+        response = app.response_class(
+            generate(),
+            mimetype=mime,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Access-Control-Allow-Origin": "*",
+            }
+        )
+        if file_size:
+            response.headers["Content-Length"] = str(file_size)
 
         return response
 

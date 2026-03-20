@@ -78,10 +78,12 @@ def build_extractor_args(client_list):
     return args
 
 
-def download_video(url, mode="mp4", format_id=None, preferred_client=None):
+def download_video(url, mode="mp4", format_id=None, preferred_client=None, cookie_path=None):
     file_id = str(uuid.uuid4())
     output_path = os.path.join(DOWNLOAD_DIR, f"{file_id}.%(ext)s")
-    cookie_path = get_cookie_file()
+    # Usa cookie_path passado pelo app.py (já em cache) — evita leitura dupla do disco
+    if cookie_path is None:
+        cookie_path = get_cookie_file()
 
     # Escolhe lista de clientes baseado na disponibilidade de cookies
     # android/ios não suportam cookies no yt-dlp — seriam descartados com aviso
@@ -112,10 +114,10 @@ def download_video(url, mode="mp4", format_id=None, preferred_client=None):
 
     base_opts = {
         "outtmpl": output_path,
-        "quiet": False,           # logs visíveis no Render para debug
+        "quiet": True,            # False só se precisar debugar — gera I/O desnecessário
         "nocheckcertificate": True,
-        "retries": 3,
-        "fragment_retries": 3,
+        "retries": 2,
+        "fragment_retries": 2,
         "format": fmt,
         "check_formats": False,
         "http_headers": {"Accept-Language": "en-US,en;q=0.9"},
